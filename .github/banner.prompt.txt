@@ -1,0 +1,31 @@
+OctoFHIR HL7 v2 README banner
+Generated with the built-in image_gen tool.
+
+Style references:
+https://github.com/octofhir/fml-rs/blob/main/.github/banner.png
+https://github.com/octofhir/ccda-fhir/blob/main/.github/banner.png
+
+Initial prompt:
+Use case: ads-marketing.
+Asset type: GitHub README banner for a new OctoFHIR repository, octo/hl7v2.
+Primary request: create a new flat developer-tool banner that belongs to exactly the same visual family as the two supplied reference banners. These images are STYLE AND BRAND REFERENCES, not edit targets. Preserve their restrained typography-led design, spacing, amber o/ brand mark, near-black background, thin charcoal borders, understated rounded terminal panel, and clean left-text/right-panel composition. No illustration, mascot, 3D, gradients, glow, decorative patterns, or photography.
+Canvas: very wide landscape, about 3:1 aspect ratio, ideally 1536 by 512. Keep generous outer padding and sharp legible text. Match the reference font styles: Inter-like bold headline, JetBrains Mono-like product name, panel text, and small outlined chips.
+Colors: background #111215; panel #15161a; borders #2a2c31; primary text #f2f2f2; muted text #9a9ca2; amber #f5b335.
+Left side: the same small amber o/ mark as the references, followed by product name exactly "octo/hl7v2", with the slash in amber. Under it a large two-line headline, first line white "HL7 v2 messages," and second line amber "from wire to FHIR." Under it small muted subtitle exactly "MLLP transport, message schemas and FML mappings."
+At the lower left, two restrained outlined chips with exact text "EARLY DEVELOPMENT" and "MIT OR Apache-2.0".
+Right side: one dark terminal-like panel occupying the right half. Header bar exact text "HL7 v2 / integration pipeline". Inside show this conceptual design overview in sharp monospace text, aligned neatly, with stage names white and arrows amber:
+"MLLP"
+"  receive / ACK / send"
+"        ↓"
+"HL7 v2"
+"  parse / schemas / groups"
+"        ↓"
+"FHIR"
+"  FML / ConceptMap"
+At the bottom of the panel, muted exact text "Design in progress".
+Constraints: this is an early-stage repository with no implementation yet. Do not invent successful command output, benchmarks, coverage percentages, release badges, install commands, or claims of working functionality. Keep all text exactly as specified, crisp and correctly spelled. The result should feel like another banner by the same designer as the references.
+
+Refinement prompt:
+Edit target: Image 1, the newly generated octo/hl7v2 banner. Images 2 and 3 are OctoFHIR style references only.
+Make one finishing correction: remove the pure white horizontal bands along the top and bottom. The dark banner background must fill the entire image edge to edge, with NO white margin or external border. Use a perfectly flat solid #111215 background, flat solid #15161a panel, crisp thin #2a2c31 borders, and remove the soft mottled texture/gradient so the result is as clean as the reference banners.
+Preserve the existing composition, all text verbatim, amber o/ mark, typography, colors, chips, diagram, and spacing. Keep the complete design visible and generously padded. This must remain a wide GitHub README banner. No additional content or changes.

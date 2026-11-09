@@ -1,0 +1,51 @@
+<p align="center"><img src=".github/banner.png" alt="octo/hl7v2 — HL7 v2 messages, from wire to FHIR" width="100%"></p>
+
+<p align="center"><b>HL7 v2 tooling in Rust: MLLP transport, message schemas and FHIR Mapping Language maps.</b></p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/status-early%20development-f5b335" alt="Status: early development">
+  <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
+</p>
+
+> This repository is at the design stage. The parser, MLLP transport, FHIR maps and processing runtime are not implemented yet.
+
+## Direction
+
+Build an HL7 v2 library that works independently of a FHIR server, with optional FHIR conversion
+and a runtime that can be embedded in [OctoFHIR](https://github.com/octofhir/server-rs) or deployed
+as a separate gateway.
+
+| Layer | Planned scope |
+|---|---|
+| Message core | ER7 parsing and serialization; preserve field positions, repetitions, custom delimiters, unknown segments and original bytes |
+| Schemas | Versioned message, segment and datatype definitions; nested groups and per-interface overrides |
+| MLLP | Async receiver and sender; persistent connections, bounded frames, timeouts, backpressure and correlated HL7 acknowledgements |
+| FHIR conversion | FML maps on [fml-rs](https://github.com/octofhir/fml-rs), ConceptMaps, validation and reports of unmapped or lost data |
+| Processing | Durable inbox, delivery deduplication, entity identity, event ordering, retries, quarantine and replay |
+
+Initial mapping candidates are ADT A01/A03/A08 and ORU R01 to FHIR R4. Their exact scope will be
+defined against a representative message corpus.
+
+## Design principles
+
+- Parse the wire format independently of the schema; apply schema-aware views and validation on top.
+- Keep transport and the message core independent of FHIR.
+- Use FML and ConceptMap for FHIR mappings.
+- Keep conversion separate from applying an event to existing clinical data.
+- Distinguish message identity from patient, encounter, order and result identity.
+- Define acknowledgement semantics per interface, including the boundary between durable receipt
+  and successful application processing.
+- Measure performance with the validation and durability guarantees stated explicitly.
+
+The [HL7 V2 to FHIR Implementation Guide](https://hl7.org/fhir/uv/v2mappings/) is a mapping reference.
+Its ConceptMaps are not a ready-to-run set of FML transforms.
+
+## Related projects
+
+- [OctoFHIR server](https://github.com/octofhir/server-rs)
+- [fml-rs](https://github.com/octofhir/fml-rs) — FHIR Mapping Language parser, checker and engine
+- [ccda-fhir](https://github.com/octofhir/ccda-fhir) — C-CDA and FHIR conversion on FML maps
+
+## License
+
+Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
