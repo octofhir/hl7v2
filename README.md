@@ -7,12 +7,12 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
 </p>
 
-> Initial ER7 parsing/editing and bounded MLLP framing are implemented. Schemas, async transport/ACK, FHIR maps and durable processing are planned.
+> ER7 parsing/editing, bounded MLLP framing, v2.5.1 ACKs and optional async connections are implemented. Schemas, FHIR maps and durable processing are planned.
 
 ## Available now
 
-The `octofhir-hl7v2` Rust package provides an original ER7 parser and editor with no third-party
-dependencies. It retains exact source bytes, byte spans, field positions, repetitions and unknown/Z-segments,
+The `octofhir-hl7v2` Rust package provides an original ER7 parser and editor. Its default library
+has no third-party dependencies. It retains exact source bytes, byte spans, field positions, repetitions and unknown/Z-segments,
 and distinguishes missing, empty, explicit null and populated positions. Scalar escape decoding is
 explicit; unsupported escapes remain inspectable. Numbers and dates retain their original lexemes.
 Parser and editor limits bound input, index and output growth.
@@ -24,7 +24,13 @@ See the [wire API and limitations](docs/wire.md).
 
 The [MLLP codec](docs/mllp.md) handles fragmented/coalesced frames, an explicit payload limit,
 incomplete EOF and framing errors. It returns one borrowed payload at a time and retains no output
-queue. Encoding supports a framed buffer or a standard writer; sockets and ACK handling are not implemented yet.
+queue. Encoding supports a framed buffer or a standard writer.
+
+[ACK generation and correlation](docs/ack.md) support a documented v2.5.1 envelope subset, original
+mode and enhanced acknowledgement conditions. The optional `transport` feature adds Tokio-backed
+[async connections](docs/transport.md): persistent sessions, bounded frames, deadlines and one
+outstanding request with MSA-2 correlation. The host owns the listener, connection/admission limits,
+processing and ACK timing. There is no durable inbox or automatic success ACK.
 
 ```rust
 use octofhir_hl7v2::wire::{Message, Presence};
@@ -44,12 +50,15 @@ From this checkout, with Rust 1.98 or newer:
 
 ```sh
 cargo test --locked --offline
+cargo test --locked --offline --all-features
 cargo run --offline --example inspect -- tests/fixtures/adt.er7
 cargo bench --offline --bench wire
 ```
 
 The package has not been published to crates.io. Benchmark output is a local parser/index timing,
 without schema validation, transport, durability or FHIR processing.
+Tokio is optional for the library and is also used by development tests. No third-party HL7
+implementation is used.
 
 ## Direction
 

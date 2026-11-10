@@ -99,7 +99,7 @@ fn hex(byte: u8) -> u8 {
     }
 }
 
-pub(super) fn append(output: &mut Vec<u8>, bytes: &[u8], max: usize) -> Result<(), Error> {
+pub(crate) fn append(output: &mut Vec<u8>, bytes: &[u8], max: usize) -> Result<(), Error> {
     if bytes.len() > max.saturating_sub(output.len()) {
         return Err(Error::new(ErrorKind::Limit, 0..0));
     }
@@ -107,7 +107,7 @@ pub(super) fn append(output: &mut Vec<u8>, bytes: &[u8], max: usize) -> Result<(
     Ok(())
 }
 
-pub(super) fn encode(bytes: &[u8], delimiters: Delimiters, max: usize) -> Result<Vec<u8>, Error> {
+pub(crate) fn encode(bytes: &[u8], delimiters: Delimiters, max: usize) -> Result<Vec<u8>, Error> {
     let mut output = Vec::new();
     let escape = delimiters.encoding[2];
     if bytes == b"\"\"" {

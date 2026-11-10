@@ -20,6 +20,10 @@ jobs:
       - name: Format
         run: cargo +${{ matrix.toolchain }} fmt --all -- --check
       - name: Test
-        run: cargo +${{ matrix.toolchain }} test --locked
+        run: cargo +${{ matrix.toolchain }} test --locked --no-default-features
+      - name: Test optional transport
+        run: cargo +${{ matrix.toolchain }} test --locked --all-features
       - name: Clippy
-        run: cargo +${{ matrix.toolchain }} clippy --locked --all-targets -- -D warnings
+        run: cargo +${{ matrix.toolchain }} clippy --locked --all-features --all-targets -- -D warnings
+      - name: Check default library
+        run: cargo +${{ matrix.toolchain }} check --locked --no-default-features --lib

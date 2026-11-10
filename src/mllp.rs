@@ -5,6 +5,9 @@ use std::{
     io::{self, Write},
 };
 
+#[cfg(feature = "transport")]
+pub mod transport;
+
 pub const START_BLOCK: u8 = 0x0b;
 pub const END_BLOCK: u8 = 0x1c;
 pub const CARRIAGE_RETURN: u8 = 0x0d;

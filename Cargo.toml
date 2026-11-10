@@ -14,6 +14,16 @@ categories = ["parser-implementations"]
 [lib]
 name = "octofhir_hl7v2"
 
+[features]
+default = []
+transport = ["dep:tokio"]
+
+[dependencies]
+tokio = { version = "1.54", optional = true, default-features = false, features = ["io-util", "net", "time"] }
+
+[dev-dependencies]
+tokio = { version = "1.54", default-features = false, features = ["rt", "macros", "test-util"] }
+
 [[bench]]
 name = "wire"
 harness = false

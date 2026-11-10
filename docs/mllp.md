@@ -1,6 +1,6 @@
 # MLLP framing core
 
-`mllp` implements incremental byte framing with no dependencies. The frame layout is VT (`0x0B`), payload, FS (`0x1C`), CR (`0x0D`), following the [HL7 MLLP block format](https://hl7.eu/refactored/transport01mllp.html). Payload content, character sets, HL7 parsing and acknowledgements are separate concerns. This module does not open sockets or issue ACKs.
+`mllp` implements incremental byte framing with no dependencies. The frame layout is VT (`0x0B`), payload, FS (`0x1C`), CR (`0x0D`), following the [HL7 MLLP block format](https://hl7.eu/refactored/transport01mllp.html). Payload content, character sets, HL7 parsing and acknowledgements are separate concerns. The codec does not open sockets or issue ACKs; optional socket support lives in `mllp::transport`.
 
 ## Incremental decoding
 
@@ -47,4 +47,4 @@ The limit excludes the three framing bytes. Bulk scanning stops at the first mar
 
 Three integration scenarios cover every two-part split of four concatenated frames, fixed chunk sizes including one-byte reads, opaque bytes, an empty frame, all EOF positions, exact/overflow limits, malformed framing, poison/reset behavior, short writes and interrupted output. The documentation example is compiled as a doctest.
 
-Async sockets, connection limits/timeouts/shutdown and correlated ACK choreography are the next transport layer. Durable receipt and application completion remain later processing boundaries; the framing codec alone makes no delivery guarantee.
+Optional [async connections](transport.md) add socket I/O, per-connection deadlines, shutdown and [ACK correlation](ack.md). Host-wide connection/admission limits, durable receipt and application completion remain later processing boundaries; the framing codec alone makes no delivery guarantee.

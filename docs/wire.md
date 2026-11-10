@@ -1,6 +1,6 @@
 # ER7 wire core
 
-`octofhir-hl7v2` implements an original, schema-free ER7 parser and editor with no dependencies. A separate [MLLP framing core](mllp.md) is available. Schemas, async transport/ACK, datatype interpretation, FHIR conversion and durable processing remain planned. See the [architecture](architecture.md) and [implementation plan](implementation-plan.md).
+`octofhir-hl7v2` implements an original, schema-free ER7 parser and editor with no dependencies in the default library. [MLLP framing](mllp.md), [ACKs](ack.md) and optional Tokio [async connections](transport.md) are available separately. Schemas, datatype interpretation, FHIR conversion and durable processing remain planned. See the [architecture](architecture.md) and [implementation plan](implementation-plan.md).
 
 ## Representation and access
 
