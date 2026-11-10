@@ -1,0 +1,25 @@
+name: Rust
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: ["1.98", stable]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install toolchain
+        run: rustup toolchain install ${{ matrix.toolchain }} --profile minimal --component rustfmt --component clippy
+      - name: Format
+        run: cargo +${{ matrix.toolchain }} fmt --all -- --check
+      - name: Test
+        run: cargo +${{ matrix.toolchain }} test --locked
+      - name: Clippy
+        run: cargo +${{ matrix.toolchain }} clippy --locked --all-targets -- -D warnings

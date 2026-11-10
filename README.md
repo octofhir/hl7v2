@@ -7,7 +7,45 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
 </p>
 
-> This repository is at the design stage. The parser, MLLP transport, FHIR maps and processing runtime are not implemented yet.
+> An initial schema-free ER7 wire core is implemented. Schemas, MLLP/ACK, FHIR maps and durable processing are planned.
+
+## Available now
+
+The `octofhir-hl7v2` Rust package provides an original ER7 parser and editor with no third-party
+dependencies. It retains exact source bytes, byte spans, field positions, repetitions and unknown/Z-segments,
+and distinguishes missing, empty, explicit null and populated positions. Scalar escape decoding is
+explicit; unsupported escapes remain inspectable. Numbers and dates retain their original lexemes.
+Parser and editor limits bound input, index and output growth.
+
+The initial supported subset uses distinct ASCII punctuation delimiters, four or five MSH-2 encoding
+characters and CR segment terminators; CRLF/LF require an explicit compatibility option. Parsing
+accepts non-UTF-8 bytes but does not transcode character sets or validate an HL7 schema/version.
+See the [wire API and limitations](docs/wire.md).
+
+```rust
+use octofhir_hl7v2::wire::{Message, Presence};
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let input = b"MSH|^~\\&|LAB\rPID|1||p1||Example^Alex|\r";
+    let message = Message::parse(input)?;
+    let pid = message.segment_named(b"PID", 1).ok_or("PID segment is missing")?;
+    assert_eq!(pid.field(6).presence(), Presence::Empty);
+    assert_eq!(pid.field(7).presence(), Presence::Missing);
+    assert_eq!(pid.field(5).child(1).child(2).decode()?.as_ref(), b"Alex");
+    Ok(())
+}
+```
+
+From this checkout, with Rust 1.98 or newer:
+
+```sh
+cargo test --locked --offline
+cargo run --offline --example inspect -- tests/fixtures/adt.er7
+cargo bench --offline --bench wire
+```
+
+The package has not been published to crates.io. Benchmark output is a local parser/index timing,
+without schema validation, transport, durability or FHIR processing.
 
 ## Direction
 
@@ -39,6 +77,9 @@ defined against a representative message corpus.
 
 The [HL7 V2 to FHIR Implementation Guide](https://hl7.org/fhir/uv/v2mappings/) is a mapping reference.
 Its ConceptMaps are not a ready-to-run set of FML transforms.
+
+The [architecture](docs/architecture.md) and [implementation plan](docs/implementation-plan.md)
+record accepted decisions, integration boundaries and remaining verification gates.
 
 ## Related projects
 

@@ -1,0 +1,25 @@
+[package]
+name = "octofhir-hl7v2"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+authors = ["OctoFHIR Team"]
+license = "MIT OR Apache-2.0"
+description = "Independent HL7 v2 wire tooling for OctoFHIR"
+repository = "https://github.com/octofhir/hl7v2"
+readme = "README.md"
+keywords = ["hl7", "hl7v2", "er7", "healthcare"]
+categories = ["parser-implementations"]
+
+[lib]
+name = "octofhir_hl7v2"
+
+[[bench]]
+name = "wire"
+harness = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = "warn"

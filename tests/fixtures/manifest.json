@@ -1,0 +1,41 @@
+{
+  "format_version": 1,
+  "fixtures": [
+    {
+      "file": "adt.er7",
+      "origin": "Original synthetic OctoFHIR fixture; no real patient data",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 229,
+      "sha256": "1469c7afa5e34484ca27dae7fff47a22130de04a27b03a470ecdeced0453ba09",
+      "expected_original_round_trip": true,
+      "schema_validated": false
+    },
+    {
+      "file": "oru.er7",
+      "origin": "Original synthetic OctoFHIR fixture; no real patient data",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 411,
+      "sha256": "dcd23eeef457d57e233bdf1fb0b6ff730162c7fc09693bcf86fa35a1cf27ce29",
+      "expected_original_round_trip": true,
+      "schema_validated": false
+    },
+    {
+      "file": "custom.er7",
+      "origin": "Original synthetic OctoFHIR fixture; no real patient data",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 141,
+      "sha256": "83522253c82a208b0511714cef1ef57a0a69ceccadfc65213f8c2ea50179e628",
+      "expected_original_round_trip": true,
+      "schema_validated": false
+    },
+    {
+      "file": "binary.er7",
+      "origin": "Original synthetic OctoFHIR fixture; no real patient data",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 93,
+      "sha256": "01c94ecb51ac137cf860b246f981b85edd109b03823d4d46264172e8c180ed4c",
+      "expected_original_round_trip": true,
+      "schema_validated": false
+    }
+  ]
+}

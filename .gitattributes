@@ -1,0 +1,2 @@
+# Wire fixtures contain intentional CR terminators and arbitrary bytes.
+tests/fixtures/*.er7 -text -diff
