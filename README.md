@@ -7,7 +7,7 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
 </p>
 
-> An initial schema-free ER7 wire core is implemented. Schemas, MLLP/ACK, FHIR maps and durable processing are planned.
+> Initial ER7 parsing/editing and bounded MLLP framing are implemented. Schemas, async transport/ACK, FHIR maps and durable processing are planned.
 
 ## Available now
 
@@ -21,6 +21,10 @@ The initial supported subset uses distinct ASCII punctuation delimiters, four or
 characters and CR segment terminators; CRLF/LF require an explicit compatibility option. Parsing
 accepts non-UTF-8 bytes but does not transcode character sets or validate an HL7 schema/version.
 See the [wire API and limitations](docs/wire.md).
+
+The [MLLP codec](docs/mllp.md) handles fragmented/coalesced frames, an explicit payload limit,
+incomplete EOF and framing errors. It returns one borrowed payload at a time and retains no output
+queue. Encoding supports a framed buffer or a standard writer; sockets and ACK handling are not implemented yet.
 
 ```rust
 use octofhir_hl7v2::wire::{Message, Presence};
