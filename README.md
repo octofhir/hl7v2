@@ -29,7 +29,8 @@ queue. Encoding supports a framed buffer or a standard writer.
 [ACK generation and correlation](docs/ack.md) support a documented v2.5.1 envelope subset, original
 mode and enhanced acknowledgement conditions. The optional `transport` feature adds Tokio-backed
 [async connections](docs/transport.md): persistent sessions, bounded frames, deadlines and one
-outstanding request with MSA-2 correlation. The host owns the listener, connection/admission limits,
+outstanding request with MSA-2 correlation. `serve` adds a bounded TCP receiver with sequential
+handlers, per-handler deadlines and graceful shutdown. The host supplies the bound listener,
 processing and ACK timing. There is no durable inbox or automatic success ACK.
 
 ```rust

@@ -11,6 +11,9 @@ use tokio::{
     time::{Instant, timeout_at},
 };
 
+mod receiver;
+pub use receiver::{ReceiverConfig, serve};
+
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
     pub max_payload: usize,
@@ -54,6 +57,8 @@ pub enum Phase {
     Frame,
     Write,
     Acknowledgement,
+    Handler,
+    Shutdown,
 }
 #[derive(Debug)]
 pub enum Error {
@@ -64,6 +69,8 @@ pub enum Error {
     Timeout(Phase),
     Closed,
     Configuration,
+    Handler(Box<dyn std::error::Error + Send + Sync>),
+    Task(tokio::task::JoinError),
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -77,6 +84,8 @@ impl std::error::Error for Error {
             Self::Frame(e) => Some(e),
             Self::Ack(e) => Some(e),
             Self::Wire(e) => Some(e),
+            Self::Handler(e) => Some(e.as_ref()),
+            Self::Task(e) => Some(e),
             _ => None,
         }
     }

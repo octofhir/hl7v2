@@ -19,7 +19,7 @@ default = []
 transport = ["dep:tokio"]
 
 [dependencies]
-tokio = { version = "1.54", optional = true, default-features = false, features = ["io-util", "net", "time"] }
+tokio = { version = "1.54", optional = true, default-features = false, features = ["io-util", "net", "time", "rt", "sync", "macros"] }
 
 [dev-dependencies]
 tokio = { version = "1.54", default-features = false, features = ["rt", "macros", "test-util"] }

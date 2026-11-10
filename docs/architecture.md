@@ -1,6 +1,6 @@
 # HL7 v2 architecture
 
-Status: architectural baseline, 2026-11-10. Implementation has been authorized. Initial [wire parsing/editing](wire.md), [MLLP framing](mllp.md), [v2.5.1 ACKs](ack.md) and optional [async connections](transport.md) are available with documented subsets and limits. Host-wide admission, durable receipt and clinical processing remain unimplemented. The broader components below remain a design unless explicitly marked implemented. The accompanying [implementation plan](implementation-plan.md) tracks progress and acceptance gates.
+Status: architectural baseline, 2026-11-10. Implementation has been authorized. Initial [wire parsing/editing](wire.md), [MLLP framing](mllp.md), [v2.5.1 ACKs](ack.md) and optional [async connections and bounded TCP receiver](transport.md) are available with documented subsets and limits. Process-wide byte accounting, durable receipt and clinical processing remain unimplemented. The broader components below remain a design unless explicitly marked implemented. The accompanying [implementation plan](implementation-plan.md) tracks progress and acceptance gates.
 
 The toolkit owns the path from HL7 v2 bytes to a durable processing outcome. Its message core, schemas, MLLP transport and receipt processing remain usable without FHIR. Optional FHIR conversion uses OctoFHIR FML and ConceptMap; a separate application layer reconciles converted events with existing clinical data.
 
