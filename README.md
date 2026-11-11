@@ -68,7 +68,8 @@ cargo run --offline --example inspect -- tests/fixtures/adt.er7
 cargo bench --offline --bench wire
 ```
 
-The package has not been published to crates.io. Benchmark output is local parser/index and lexical timing,
+The package has not been published to crates.io. Benchmark output separates local parser/index,
+lexical, prepared-edit serialization and complete edit/reindex timings,
 without schema validation, transport, durability or FHIR processing.
 Tokio, SQLx and SHA-256 are optional library infrastructure; development tests also use Tokio.
 No third-party HL7 implementation is used. PostgreSQL tests require an explicitly configured

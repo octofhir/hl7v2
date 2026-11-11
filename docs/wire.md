@@ -45,9 +45,13 @@ cargo run --offline --example inspect -- tests/fixtures/adt.er7
 cargo bench --offline --bench wire
 ```
 
-Six integration tests cover source retention, positions/presence, escapes, input/resource failures, patch conflicts and generated inputs. Generated checks use 10,000 byte inputs and 2,000 scalar round trips with shuffled delimiters. A separate [coverage-guided fuzz harness](../fuzz/README.md) checks wire/edit/ACK and MLLP invariants with AddressSanitizer; CI runs bounded smoke campaigns. Fixture origin, license, lengths and digests are recorded in the [manifest](../tests/fixtures/manifest.json).
+Six initial integration tests cover source retention, positions/presence, escapes, input/resource failures, patch conflicts and generated inputs. Three creation scenarios cover sparse ordering and budgets; five scalar scenarios cover numeric/temporal/TS semantics. Generated checks use 10,000 byte inputs and 2,000 scalar replacement/creation round trips with shuffled delimiters. A separate [coverage-guided fuzz harness](../fuzz/README.md) checks wire/edit/TS/creation/ACK and MLLP invariants with AddressSanitizer; CI runs bounded smoke campaigns. Fixture origin, license, lengths and digests are recorded in the [manifest](../tests/fixtures/manifest.json).
 
-The benchmark times parsing and index construction, including their allocations, without validation, transport or durability. A local comparison on macOS arm64 used the previous draft and flat index on the same two synthetic fixtures, Rust 1.99, optimized builds, three sequential runs of 100,000 parses each:
+The benchmark separates message parsing/indexing, lexical decimal/DTM parsing, serialization of prepared sparse patches, and patch preparation + serialization + reindexing. Correctness checks run before timing. The edit case changes one field, creates nested positions and explicit null, and checks that untouched segments match. Prepared serialization excludes source parsing, patch preparation and reindexing; the combined edit case excludes only initial source parsing. Timings include allocations on their respective paths but do not count allocations or measure peak memory. They exclude schema validation, transport and durability.
+
+For a local warmed run, execute `HL7V2_BENCH_ITERS=100000 cargo bench --locked --offline --bench wire` three times sequentially. Keep build flags and corpus fixed; report each run and its included boundary rather than mixing the result with MLLP/clinical throughput. The fixtures' hashes are in the manifest above.
+
+A previous local comparison on macOS arm64 used the previous draft and flat index on the same two synthetic fixtures, Rust 1.99, optimized builds, three sequential runs of 100,000 parses each:
 
 | Fixture | Previous draft median | Flat index median |
 |---|---|---|
