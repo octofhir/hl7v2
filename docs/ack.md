@@ -69,3 +69,5 @@ make a stale response indistinguishable from a current one.
 
 ACK construction is deterministic for the supplied bytes and parameters. Durable receipt, recorded
 responses for retries and clinical application remain the processing layer's responsibility.
+The optional [PostgreSQL inbox](inbox.md) implements the initial enhanced AL/NE custody boundary;
+calling `build` alone still establishes no durable receipt.

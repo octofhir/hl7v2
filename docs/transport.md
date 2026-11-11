@@ -107,6 +107,10 @@ yield promptly and avoid blocking work. Detached tasks or blocking operations st
 are not owned or cancelled by `serve`. There is no database transaction, automatic retry, deduplication
 or clinical-application guarantee in the receiver.
 
+An initial optional [PostgreSQL inbox](inbox.md) can provide the enhanced AL/NE durable custody
+boundary inside this handler. It returns recorded ACK bytes after commit; it does not turn the
+receiver into a clinical-processing gateway.
+
 ## Verification
 
 Tests cover real loopback TCP with repeated original/enhanced exchanges, short duplex reads/writes,

@@ -1,6 +1,6 @@
 # HL7 v2 architecture
 
-Status: architectural baseline, 2026-11-10. Implementation has been authorized. Initial [wire parsing/editing](wire.md), [MLLP framing](mllp.md), [v2.5.1 ACKs](ack.md) and optional [async connections and bounded TCP receiver](transport.md) are available with documented subsets and limits. Process-wide byte accounting, durable receipt and clinical processing remain unimplemented. The broader components below remain a design unless explicitly marked implemented. The accompanying [implementation plan](implementation-plan.md) tracks progress and acceptance gates.
+Status: architectural baseline, updated 2026-11-11. Implementation has been authorized. Initial [wire parsing/editing](wire.md), [MLLP framing](mllp.md), [v2.5.1 ACKs](ack.md), optional [async receiver](transport.md) and [PostgreSQL custody inbox](inbox.md) are available with documented subsets and limits. Process-wide byte accounting, worker/retry lifecycle and clinical processing remain unimplemented. The broader components below remain a design unless explicitly marked implemented. The accompanying [implementation plan](implementation-plan.md) tracks progress and acceptance gates.
 
 The toolkit owns the path from HL7 v2 bytes to a durable processing outcome. Its message core, schemas, MLLP transport and receipt processing remain usable without FHIR. Optional FHIR conversion uses OctoFHIR FML and ConceptMap; a separate application layer reconciles converted events with existing clinical data.
 
@@ -287,6 +287,12 @@ After `CA`, later schema, mapping or FHIR errors cannot retract custody; they be
 ### Durable records and states
 
 Proposed first durable backend: PostgreSQL, so a gateway can use the same transactional semantics as the server without embedding the server. Keep a small storage contract; do not introduce Kafka, a workflow service, object storage or several database adapters for the initial slice. Store bounded original payloads in the database initially, avoiding an unproven blob/database atomicity protocol.
+
+The initial optional custody adapter is now implemented with SQLx 0.9 and SHA-256, matching the
+SQLx generation in the inspected server lockfile. Its key is `(trusted host scope, processing ID,
+decoded MSH-10)`; the host scope must bind the sender identity policy described below. It commits
+original/delivery/plan/ACK together and supports enhanced AL/NE only. The full record model below
+still includes unimplemented worker, application-receipt, emission-attempt and replay capabilities.
 
 | Record | Required durable content |
 |---|---|

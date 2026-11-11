@@ -7,7 +7,7 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
 </p>
 
-> ER7 parsing/editing, bounded MLLP framing, v2.5.1 ACKs and optional async connections are implemented. Schemas, FHIR maps and durable processing are planned.
+> ER7 parsing/editing, MLLP/ACK, optional async receiver and initial PostgreSQL custody are implemented. Schemas, FHIR maps and clinical processing are planned.
 
 ## Available now
 
@@ -31,7 +31,13 @@ mode and enhanced acknowledgement conditions. The optional `transport` feature a
 [async connections](docs/transport.md): persistent sessions, bounded frames, deadlines and one
 outstanding request with MSA-2 correlation. `serve` adds a bounded TCP receiver with sequential
 handlers, per-handler deadlines and graceful shutdown. The host supplies the bound listener,
-processing and ACK timing. There is no durable inbox or automatic success ACK.
+processing and ACK timing. Standalone connections never generate a success ACK automatically.
+
+The optional `postgres` feature adds an initial [durable custody inbox](docs/inbox.md) on a
+host-provided SQLx pool. It stores exact payloads, pinned plan identities and ACK bytes atomically,
+deduplicates scoped deliveries and retains conflicting payloads. Its supported contract is v2.5.1
+enhanced `AL/NE`; it returns `CA` after commit. Processing workers, retries, quarantine and FHIR
+application are not implemented. Database schema setup and interface admission are host policy.
 
 ```rust
 use octofhir_hl7v2::wire::{Message, Presence};
@@ -58,8 +64,9 @@ cargo bench --offline --bench wire
 
 The package has not been published to crates.io. Benchmark output is a local parser/index timing,
 without schema validation, transport, durability or FHIR processing.
-Tokio is optional for the library and is also used by development tests. No third-party HL7
-implementation is used.
+Tokio, SQLx and SHA-256 are optional library infrastructure; development tests also use Tokio.
+No third-party HL7 implementation is used. PostgreSQL tests require an explicitly configured
+dedicated database and are listed as ignored by the normal test command; see the inbox guide.
 
 [Coverage-guided fuzzing](fuzz/README.md) runs separately with pinned nightly tooling and synthetic
 seeds. It checks ER7 spans/edits/ACKs and MLLP chunking/limits without adding runtime dependencies.

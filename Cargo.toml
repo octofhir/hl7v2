@@ -17,9 +17,12 @@ name = "octofhir_hl7v2"
 [features]
 default = []
 transport = ["dep:tokio"]
+postgres = ["dep:sqlx", "dep:sha2"]
 
 [dependencies]
 tokio = { version = "1.54", optional = true, default-features = false, features = ["io-util", "net", "time", "rt", "sync", "macros"] }
+sqlx = { version = "0.9", optional = true, default-features = false, features = ["runtime-tokio", "postgres"] }
+sha2 = { version = "0.11", optional = true, default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1.54", default-features = false, features = ["rt", "macros", "test-util"] }
