@@ -199,6 +199,19 @@ fn header(message: &Message) -> Result<(Policy, bool), Error> {
             _ => return Err(Error::Charset),
         },
     };
+    for field in [3, 4, 5, 6, 11, 12, 17, 18] {
+        let decoded = wire::decode_scalar(
+            raw(message, field),
+            message
+                .value(&[1, field])
+                .span()
+                .map_or(0, |span| span.start),
+            message.delimiters(),
+        )?;
+        if !text(&decoded, utf8) || decoded.iter().any(u8::is_ascii_control) {
+            return Err(Error::Charset);
+        }
+    }
     let control = scalar(message, &[1, 10])?;
     if !text(&control, utf8) || control.iter().any(u8::is_ascii_control) {
         return Err(Error::Header);
@@ -296,12 +309,6 @@ pub fn build(request: &Message, reply: Reply<'_>, max_bytes: usize) -> Result<Ve
         || !valid_timestamp(reply.timestamp)
     {
         return Err(Error::Header);
-    }
-    for field in [3, 4, 5, 6, 11, 12, 17, 18] {
-        if !text(raw(request, field), utf8) || raw(request, field).iter().any(u8::is_ascii_control)
-        {
-            return Err(Error::Charset);
-        }
     }
     let delimiters = request.delimiters();
     let timestamp = wire::encode_scalar(reply.timestamp, delimiters, max_bytes)?;

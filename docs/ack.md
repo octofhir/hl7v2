@@ -45,6 +45,11 @@ non-null scalar control IDs and four MSH-2 encoding characters. Repeated MSH-9/1
 ASCII (including an absent declaration) and a single `UNICODE UTF-8` charset declaration are
 supported. Other charsets and alternate charset switching require a separate future contract.
 
+Copied envelope fields are scalar-escape decoded for validation before their raw spellings are
+reused. Malformed or unsupported escapes, decoded control bytes and bytes invalid under the
+declared ASCII/UTF-8 contract are rejected even if the wire diagnostic budget is zero. The generic
+parser still preserves these messages for inspection; an invalid envelope cannot produce an ACK.
+
 Generation swaps MSH sender/receiver fields, uses `ACK^event^ACK`, retains processing/version,
 country and charset fields, and copies request MSH-10 into MSA-2 with its original escaping.
 MSH-10 of the response is separate. Generated timestamps must be complete calendar-valid

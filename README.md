@@ -61,6 +61,9 @@ without schema validation, transport, durability or FHIR processing.
 Tokio is optional for the library and is also used by development tests. No third-party HL7
 implementation is used.
 
+[Coverage-guided fuzzing](fuzz/README.md) runs separately with pinned nightly tooling and synthetic
+seeds. It checks ER7 spans/edits/ACKs and MLLP chunking/limits without adding runtime dependencies.
+
 ## Direction
 
 Build an HL7 v2 library that works independently of a FHIR server, with optional FHIR conversion

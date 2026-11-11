@@ -1,0 +1,32 @@
+[package]
+name = "octofhir-hl7v2-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+octofhir-hl7v2 = { path = "..", default-features = false }
+
+[workspace]
+
+[[bin]]
+name = "wire"
+path = "fuzz_targets/wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mllp"
+path = "fuzz_targets/mllp.rs"
+test = false
+doc = false
+bench = false
+
+[lints.rust]
+unsafe_code = "forbid"

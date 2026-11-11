@@ -45,7 +45,7 @@ cargo run --offline --example inspect -- tests/fixtures/adt.er7
 cargo bench --offline --bench wire
 ```
 
-Six integration tests cover source retention, positions/presence, escapes, input/resource failures, patch conflicts and generated inputs. Generated checks use 10,000 byte inputs and 2,000 scalar round trips with shuffled delimiters; they are not a coverage-guided fuzzing campaign. Fixture origin, license, lengths and digests are recorded in the [manifest](../tests/fixtures/manifest.json).
+Six integration tests cover source retention, positions/presence, escapes, input/resource failures, patch conflicts and generated inputs. Generated checks use 10,000 byte inputs and 2,000 scalar round trips with shuffled delimiters. A separate [coverage-guided fuzz harness](../fuzz/README.md) checks wire/edit/ACK and MLLP invariants with AddressSanitizer; CI runs bounded smoke campaigns. Fixture origin, license, lengths and digests are recorded in the [manifest](../tests/fixtures/manifest.json).
 
 The benchmark times parsing and index construction, including their allocations, without validation, transport or durability. A local comparison on macOS arm64 used the previous draft and flat index on the same two synthetic fixtures, Rust 1.99, optimized builds, three sequential runs of 100,000 parses each:
 
@@ -54,4 +54,4 @@ The benchmark times parsing and index construction, including their allocations,
 | ADT, 229 bytes | 6,563 ns/message | 2,123 ns/message |
 | ORU, 411 bytes | 9,044 ns/message | 3,088 ns/message |
 
-These are local timings on a small corpus, not throughput guarantees. Allocation accounting, larger sender corpora and coverage-guided fuzzing remain open verification work.
+These are local timings on a small corpus, not throughput guarantees. Allocation accounting, larger sender corpora and sustained fuzz campaigns remain open verification work.

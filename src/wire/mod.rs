@@ -7,7 +7,7 @@ mod escape;
 mod parse;
 
 pub use edit::{Edit, Editor};
-pub(crate) use escape::{append, encode as encode_scalar};
+pub(crate) use escape::{append, decode as decode_scalar, encode as encode_scalar};
 use std::{borrow::Cow, fmt, ops::Range, sync::Arc};
 
 pub type Span = Range<usize>;

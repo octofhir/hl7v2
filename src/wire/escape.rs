@@ -58,7 +58,7 @@ pub(super) fn diagnostic(payload: Option<&[u8]>, delimiters: Delimiters) -> Opti
     }
 }
 
-pub(super) fn decode(
+pub(crate) fn decode(
     bytes: &[u8],
     offset: usize,
     delimiters: Delimiters,

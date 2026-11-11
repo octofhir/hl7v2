@@ -1,6 +1,6 @@
 use octofhir_hl7v2::{
     ack::{self, Code, Condition, Issue, Mode, Policy, Reply, Severity},
-    wire::{Edit, Message},
+    wire::{Edit, Message, ParseOptions},
 };
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
@@ -119,6 +119,30 @@ fn wrong_identity_phase_and_envelope_are_not_valid_acknowledgements() -> Result 
     assert!(ack::correlate(&request, duplicate, Mode::EnhancedAcceptOnly).is_err());
     assert!(ack::build(&response, reply(Code::AA), 4096).is_err());
     assert!(ack::build(&request, reply(Code::CA), 8).is_err());
+    for identity in [
+        b"TEST\\".as_slice(),
+        b"TEST\\X1\\",
+        b"TEST\\Zlocal\\",
+        b"TEST\\XFF\\",
+        b"TEST\\X0D\\",
+    ] {
+        let bytes = [
+            b"MSH|^~\\&|S|S|T|".as_slice(),
+            identity,
+            b"|20261111||ADT^A01^ADT_A01|m1|T|2.5.1\r",
+        ]
+        .concat();
+        let malformed = Message::parse_with_options(
+            bytes,
+            ParseOptions {
+                max_diagnostics: 0,
+                ..Default::default()
+            },
+        )?;
+        assert!(malformed.diagnostics().is_empty());
+        assert!(ack::validate_request(&malformed, Mode::Original).is_err());
+        assert!(ack::build(&malformed, reply(Code::AA), 4096).is_err());
+    }
     for timestamp in [
         b"20240229235959.1234-0000".as_slice(),
         b"20261110120000+0300",
@@ -168,7 +192,7 @@ fn custom_delimiters_and_declared_utf8_use_the_existing_scalar_encoder() -> Resu
         Code::AA
     );
     let request = Message::parse(
-        b"MSH|^~\\&|S|S|T|T|20261110||ADT^A01^ADT_A01|m1|T|2.5.1||||||UNICODE UTF-8\r",
+        b"MSH|^~\\&|\\XCEBB\\^id^ISO|S|T|T|20261110||ADT^A01^ADT_A01|m1|T|2.5.1||||||UNICODE UTF-8\r",
     )?;
     let response = Message::parse(ack::build(
         &request,
@@ -186,6 +210,7 @@ fn custom_delimiters_and_declared_utf8_use_the_existing_scalar_encoder() -> Resu
         response.value(&[3, 7]).decode()?.as_ref(),
         "Required: имя".as_bytes()
     );
+    assert_eq!(response.value(&[1, 5]).raw(), request.value(&[1, 3]).raw());
     ack::correlate(&request, response, Mode::Original)?;
     Ok(())
 }

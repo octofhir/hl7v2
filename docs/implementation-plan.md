@@ -1,6 +1,6 @@
 # HL7 v2 implementation plan
 
-Status: implementation in progress, 2026-11-10. The user has authorized implementation in this repository. Changes in neighboring repositories still require a separate request. See [architecture](architecture.md) for component boundaries, source evidence, accepted decisions and unresolved questions.
+Status: implementation in progress, 2026-11-11. The user has authorized implementation in this repository. Changes in neighboring repositories still require a separate request. See [architecture](architecture.md) for component boundaries, source evidence, accepted decisions and unresolved questions.
 
 Build the smallest complete supported interface before broadening the catalog or mapping families. Every stage ends in observable behavior and failure tests. Do not label a stage complete on the basis of module skeletons, type definitions or happy-path fixtures alone.
 
@@ -10,7 +10,8 @@ Build the smallest complete supported interface before broadening the catalog or
 |---|---|
 | 0 — Interface contract | Schema source/provenance, representative sender contract and application/durability decisions remain open. Independent wire implementation proceeds as allowed below. |
 | 1 — Wire core | Initial parser with a flat arena index, source spans, four-state presence, explicit escape decoding and sparse byte-range editing implemented. No third-party dependencies. Synthetic binary-safe corpus, inspector, deterministic robustness checks and a local timing benchmark are present. Typed NM/DT/DTM/TS interpretation and construction of missing positions are deferred. See [actual supported subset](wire.md). |
-| 1 — Remaining verification | Coverage-guided fuzzing, broader sender corpus, allocation/peak-memory benchmarks and expansion beyond the documented delimiter/encoding subset are not complete. Stage 1 is not declared fully closed. |
+| 1 — Robustness | Separate coverage-guided wire/edit/ACK and MLLP targets, synthetic seeds, dictionaries, pinned tooling and bounded sanitizer smoke campaigns are available. A found ACK escape-copy defect is retained as a regression. See [fuzzing](../fuzz/README.md). |
+| 1 — Remaining verification | Sustained fuzz campaigns, broader sender corpus, allocation/peak-memory benchmarks and expansion beyond the documented delimiter/encoding subset are not complete. Stage 1 is not declared fully closed. |
 | 3 — Framing core | Bounded incremental MLLP decoder, buffer/writer encoding, explicit consumed-byte backpressure boundary, poison/reset and EOF handling implemented without dependencies. See [framing contract](mllp.md). |
 | 3 — ACK and connections | Dependency-free v2.5.1 ACK generation/correlation and AL/NE/SU/ER policy matrix. Optional Tokio connections provide persistent async send/receive, one outstanding correlated request, per-connection deadlines and close-on-cancellation. Synchronous exchanges support original mode and enhanced AL/NE only. See [ACK](ack.md) and [transport](transport.md) contracts. |
 | 3 — Bounded receiver | Optional `serve` owns capped TCP connection tasks with sequential handlers, no message queue, per-handler deadlines, observable connection errors and bounded cooperative shutdown draining. ACK bytes remain handler-owned. This bounds admission within one listener; process-wide byte accounting and durable receipt are not implemented. |
