@@ -54,15 +54,22 @@ jobs:
       - name: Install toolchain
         run: rustup toolchain install stable --profile minimal
       - name: Apply schema to dedicated test database
-        run: psql "$HL7V2_TEST_DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f migrations/0001_inbox.sql
+        run: |
+          for migration in migrations/*.sql; do
+            psql "$HL7V2_TEST_DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f "$migration"
+          done
       - name: Test durable custody and TCP retry
         run: cargo test --locked --all-features --test inbox -- --ignored --skip recovery_across_postgres_crash
+      - name: Test leases and work outcomes
+        run: cargo test --locked --all-features --test work -- --ignored --skip work_recovery_across_postgres_crash
       - name: Test insert-only custody role
         run: |
           psql "$HL7V2_TEST_DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -c "CREATE ROLE hl7v2_custody LOGIN PASSWORD 'custody'; GRANT USAGE ON SCHEMA hl7v2 TO hl7v2_custody; GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA hl7v2 TO hl7v2_custody; GRANT USAGE ON ALL SEQUENCES IN SCHEMA hl7v2 TO hl7v2_custody;"
           HL7V2_TEST_DATABASE_URL=postgres://hl7v2_custody:custody@localhost:5432/hl7v2 cargo test --locked --all-features --test inbox concurrent_receipts_pin_one_original_plan_and_replay_after_reconnection -- --ignored
       - name: Commit recovery checkpoint
-        run: HL7V2_RECOVERY_PHASE=seed cargo test --locked --all-features --test inbox recovery_across_postgres_crash -- --ignored
+        run: |
+          HL7V2_RECOVERY_PHASE=seed cargo test --locked --all-features --test inbox recovery_across_postgres_crash -- --ignored
+          HL7V2_RECOVERY_PHASE=seed cargo test --locked --all-features --test work work_recovery_across_postgres_crash -- --ignored
       - name: Crash and restart test database
         env:
           TEST_DATABASE_CONTAINER: ${{ job.services.database.id }}
@@ -71,7 +78,9 @@ jobs:
           docker start "$TEST_DATABASE_CONTAINER"
           timeout 30s bash -c 'until pg_isready -h localhost -U hl7v2 -d hl7v2; do sleep 1; done'
       - name: Verify recorded response after recovery
-        run: HL7V2_RECOVERY_PHASE=verify cargo test --locked --all-features --test inbox recovery_across_postgres_crash -- --ignored
+        run: |
+          HL7V2_RECOVERY_PHASE=verify cargo test --locked --all-features --test inbox recovery_across_postgres_crash -- --ignored
+          HL7V2_RECOVERY_PHASE=verify cargo test --locked --all-features --test work work_recovery_across_postgres_crash -- --ignored
 
   fuzz:
     runs-on: ubuntu-latest

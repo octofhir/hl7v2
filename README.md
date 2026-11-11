@@ -36,8 +36,9 @@ processing and ACK timing. Standalone connections never generate a success ACK a
 The optional `postgres` feature adds an initial [durable custody inbox](docs/inbox.md) on a
 host-provided SQLx pool. It stores exact payloads, pinned plan identities and ACK bytes atomically,
 deduplicates scoped deliveries and retains conflicting payloads. Its supported contract is v2.5.1
-enhanced `AL/NE`; it returns `CA` after commit. Processing workers, retries, quarantine and FHIR
-application are not implemented. Database schema setup and interface admission are host policy.
+enhanced `AL/NE`; it returns `CA` after commit. [Work-state APIs](docs/work.md) add durable claims,
+leases, attempt history, retry scheduling and quarantine. The host owns the execution loop and
+clinical application; there is no FML/FHIR processor yet. Database schema setup and interface admission are host policy.
 
 ```rust
 use octofhir_hl7v2::wire::{Message, Presence};

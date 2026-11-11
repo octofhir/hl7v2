@@ -5,11 +5,14 @@ use crate::{
     wire::{self, Message},
 };
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use std::{fmt, time::Duration};
 
 /// Initial schema; apply once through the host's migration mechanism, never on each receipt.
 pub const SCHEMA: &str = include_str!("../migrations/0001_inbox.sql");
+pub const WORK_SCHEMA: &str = include_str!("../migrations/0002_work.sql");
+mod work;
+pub use work::{Claim, ClaimOptions, Lease, Outcome, State};
 const MAX_PAYLOAD: usize = 8 * 1024 * 1024;
 const MAX_ACK: usize = 64 * 1024;
 
@@ -21,6 +24,7 @@ pub enum Error {
     Configuration,
     Durability,
     Integrity,
+    LeaseLost,
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -168,24 +172,7 @@ impl Inbox {
             MAX_ACK,
         )?;
         let digest = Sha256::digest(message.original());
-        let mut tx = self
-            .pool
-            .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
-            .await?;
-        let settings = sqlx::query("SELECT set_config('statement_timeout', $1, true),
-            current_setting('fsync') AS fsync, current_setting('full_page_writes') AS full_page_writes,
-            current_setting('synchronous_commit') AS commit_mode")
-            .bind(format!("{}ms", self.statement_ms)).fetch_one(&mut *tx).await?;
-        let commit_mode: &str = settings.try_get("commit_mode")?;
-        if settings.try_get::<&str, _>("fsync")? != "on"
-            || settings.try_get::<&str, _>("full_page_writes")? != "on"
-            || !matches!(
-                commit_mode,
-                "on" | "local" | "remote_write" | "remote_apply"
-            )
-        {
-            return Err(Error::Durability);
-        }
+        let (mut tx, commit_mode) = self.transaction().await?;
         let inserted: Option<i64> = sqlx::query_scalar(
             "INSERT INTO hl7v2.inbox
             (scope, processing_id, control_id, plan, payload, sha256, acknowledgement)
@@ -253,5 +240,27 @@ impl Inbox {
             plan: effective_plan,
             acknowledgement,
         })
+    }
+
+    async fn transaction(&self) -> Result<(Transaction<'static, Postgres>, String), Error> {
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
+            .await?;
+        let settings = sqlx::query("SELECT set_config('statement_timeout', $1, true),
+            current_setting('fsync') AS fsync, current_setting('full_page_writes') AS full_page_writes,
+            current_setting('synchronous_commit') AS commit_mode")
+            .bind(format!("{}ms", self.statement_ms)).fetch_one(&mut *tx).await?;
+        let commit_mode: String = settings.try_get("commit_mode")?;
+        if settings.try_get::<&str, _>("fsync")? != "on"
+            || settings.try_get::<&str, _>("full_page_writes")? != "on"
+            || !matches!(
+                commit_mode.as_str(),
+                "on" | "local" | "remote_write" | "remote_apply"
+            )
+        {
+            return Err(Error::Durability);
+        }
+        Ok((tx, commit_mode))
     }
 }

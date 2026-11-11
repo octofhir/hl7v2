@@ -99,9 +99,9 @@ The host owns configured pool size, acquisition timeout, authenticated channels,
 admission. SQLx's PostgreSQL driver and SHA-256 are optional; default ER7/ACK/framing remain free of
 runtime dependencies. This adapter does not join the OctoFHIR server's FHIR transaction.
 
-Only custody and `ready` records are implemented. Processing leases/fencing, attempt history,
-quarantine, replay scheduling, ACK emission attempts, original-mode application completion, full
-schema validation and FHIR application remain planned. Invalid/unkeyed envelopes are rejected
+An optional second migration adds [work claims, leases, attempt history, retries and quarantine](work.md).
+These APIs fence inbox metadata; replay scheduling, ACK emission attempts, original-mode application
+completion, full schema validation and FHIR application remain planned. Invalid/unkeyed envelopes are rejected
 before receipt; bounded forensic/quarantine storage for them is a later processing concern.
 
 ## Verification
