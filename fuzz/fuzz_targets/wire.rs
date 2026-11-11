@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 use octofhir_hl7v2::{
     ack::{self, Code, Mode, Reply},
-    wire::{DiagnosticKind, Edit, Message, ParseOptions, Presence, Value},
+    wire::{Date, DateTime, Decimal, DiagnosticKind, Edit, Message, ParseOptions, Presence, Value},
 };
 use std::ops::Range;
 
@@ -14,6 +14,15 @@ fn value(value: Value<'_>, bytes: &[u8], parent: Range<usize>, depth: usize) {
     assert!(parent.start <= span.start && span.end <= parent.end);
     assert_eq!(value.raw(), Some(&bytes[span.clone()]));
     let _ = value.decode();
+    if let Ok(decimal) = value.decimal() {
+        assert!(matches!(value.decode(), Ok(bytes) if bytes.as_ref() == decimal.as_bytes()));
+    }
+    if let Ok(date) = value.date() {
+        assert!(matches!(value.decode(), Ok(bytes) if bytes.as_ref() == date.as_bytes()));
+    }
+    if let Ok(timestamp) = value.date_time() {
+        assert!(matches!(value.decode(), Ok(bytes) if bytes.as_ref() == timestamp.as_bytes()));
+    }
     assert_eq!(value.child(0).presence(), Presence::Missing);
     assert_eq!(value.child(usize::MAX).presence(), Presence::Missing);
     for n in 1..=value.child_count() {
@@ -43,6 +52,26 @@ fn check(message: &Message, options: ParseOptions) {
 }
 
 fuzz_target!(|bytes: &[u8]| {
+    if bytes.len() > 16_384 {
+        return;
+    }
+    // Exercise lexical validation even when arbitrary input is not an ER7 message.
+    if let Ok(decimal) = Decimal::parse(bytes) {
+        assert_eq!(decimal.as_bytes(), bytes);
+        assert_eq!(decimal.as_bytes().as_ptr(), bytes.as_ptr());
+        assert!(decimal.integer_digits().len() + decimal.scale() > 0);
+    }
+    if let Ok(date) = Date::parse(bytes) {
+        assert_eq!(date.as_bytes(), bytes);
+        assert!(DateTime::parse(bytes).is_ok());
+    }
+    if let Ok(timestamp) = DateTime::parse(bytes) {
+        assert_eq!(timestamp.as_bytes(), bytes);
+        assert!((1..=9999).contains(&timestamp.year()));
+        if let Some(fraction) = timestamp.fraction_digits() {
+            assert!((1..=4).contains(&fraction.len()));
+        }
+    }
     let options = ParseOptions {
         compatible_line_endings: bytes.len().is_multiple_of(2),
         max_bytes: 16_384,

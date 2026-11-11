@@ -5,9 +5,12 @@
 mod edit;
 mod escape;
 mod parse;
+#[doc = include_str!("../../docs/scalars.md")]
+pub mod scalar;
 
 pub use edit::{Edit, Editor};
 pub(crate) use escape::{append, decode as decode_scalar, encode as encode_scalar};
+pub use scalar::{Date, DateTime, Decimal, Precision};
 use std::{borrow::Cow, fmt, ops::Range, sync::Arc};
 
 pub type Span = Range<usize>;
@@ -21,6 +24,10 @@ pub enum ErrorKind {
     Limit,
     Missing,
     Null,
+    Empty,
+    Number,
+    Date,
+    DateTime,
     Composite,
     Escape,
     InvalidHex,

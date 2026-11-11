@@ -391,53 +391,12 @@ pub fn build(request: &Message, reply: Reply<'_>, max_bytes: usize) -> Result<Ve
     Ok(output)
 }
 
-// Generated ACKs use complete v2.5.1 timestamps; incoming partial dates remain wire data.
+// Generated ACKs require complete timestamps; generic typed reads permit partial precision.
 fn valid_timestamp(bytes: &[u8]) -> bool {
-    if bytes.len() < 14 || !bytes[..14].iter().all(u8::is_ascii_digit) {
-        return false;
-    }
-    let number = |range: std::ops::Range<usize>| {
-        bytes[range]
-            .iter()
-            .fold(0u16, |n, b| n * 10 + u16::from(b - b'0'))
-    };
-    let year = number(0..4);
-    let month = number(4..6);
-    let day = number(6..8);
-    let leap = year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400));
-    let days = match month {
-        4 | 6 | 9 | 11 => 30,
-        2 => {
-            if leap {
-                29
-            } else {
-                28
-            }
-        }
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        _ => return false,
-    };
-    if year == 0
-        || day == 0
-        || day > days
-        || number(8..10) > 23
-        || number(10..12) > 59
-        || number(12..14) > 59
-    {
-        return false;
-    }
-    let mut tail = &bytes[14..];
-    if tail.first() == Some(&b'.') {
-        let digits = tail[1..].iter().take_while(|b| b.is_ascii_digit()).count();
-        if !(1..=4).contains(&digits) {
-            return false;
-        }
-        tail = &tail[digits + 1..];
-    }
-    tail.is_empty()
-        || (tail.len() == 5
-            && matches!(tail[0], b'+' | b'-')
-            && tail[1..].iter().all(u8::is_ascii_digit)
-            && (tail[1] - b'0') * 10 + tail[2] - b'0' <= 23
-            && (tail[3] - b'0') * 10 + tail[4] - b'0' <= 59)
+    wire::DateTime::parse(bytes).is_ok_and(|value| {
+        matches!(
+            value.precision(),
+            wire::Precision::Second | wire::Precision::Fraction(_)
+        )
+    })
 }

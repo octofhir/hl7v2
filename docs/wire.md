@@ -1,12 +1,12 @@
 # ER7 wire core
 
-`octofhir-hl7v2` implements an original, schema-free ER7 parser and editor with no dependencies in the default library. [MLLP framing](mllp.md), [ACKs](ack.md) and optional Tokio [async connections](transport.md) are available separately. Schemas, datatype interpretation, FHIR conversion and durable processing remain planned. See the [architecture](architecture.md) and [implementation plan](implementation-plan.md).
+`octofhir-hl7v2` implements an original, schema-free ER7 parser and editor with no dependencies in the default library. Explicit [numeric/date views](scalars.md), [MLLP framing](mllp.md), [ACKs](ack.md), optional Tokio [async connections](transport.md) and PostgreSQL [custody](inbox.md) are available separately. Schemas, FHIR conversion and clinical processing remain planned. See the [architecture](architecture.md) and [implementation plan](implementation-plan.md).
 
 ## Representation and access
 
 `Message::parse` checks the byte limit, retains the exact input in `Arc<[u8]>` and builds a flat arena index. Each node contains a source range and a contiguous range of child nodes; there is no allocation per child list. Message clones share the bytes and index. `Message::from_shared` accepts an existing `Arc<[u8]>` without copying it.
 
-`original()` returns unchanged bytes, including unknown/Z-segments, spaces, trailing separators, escape spellings and non-UTF-8 content. Numbers and partial dates are never converted or normalized. Typed numeric/temporal interpretation is deferred.
+`original()` returns unchanged bytes, including unknown/Z-segments, spaces, trailing separators, escape spellings and non-UTF-8 content. Numbers and partial dates are never normalized. `Value::{decimal, date, date_time}` explicitly validate [lexical views](scalars.md) that retain signs, zeros, partial precision and offset presence. They do not select schema types or interpret composite TS precision overrides.
 
 All paths are one-based. `value(&[segment, field, repetition, component, subcomponent])` accepts two to five coordinates. Segment numbers count every segment in wire order, including MSH. `segment_named(b"OBX", n)` finds the nth occurrence of an ID; its `occurrence()` gives that segment's global number. A field's children are repetitions, then components, then subcomponents. MSH-1/2 are opaque declarations with no children.
 

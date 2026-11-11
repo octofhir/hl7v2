@@ -33,6 +33,8 @@ and use `max_len=16384` without changing the harness's input boundary.
 
 `wire` checks accepted source retention, source spans and parent/child bounds, fixed indexing depth,
 missing/out-of-range access, retained-diagnostic limits and byte-identical original serialization.
+It also validates arbitrary standalone decimal/DT/DTM inputs and explicit typed node reads,
+checking source preservation, borrowed standalone decimals and precision/fraction bounds.
 It submits combinations of scalar/empty/null/unset edits at several positional depths and verifies
 that successful serialization reparses with the original limits. Eligible v2.5.1 requests also
 exercise ACK generation: the result must parse, avoid malformed escapes and correlate in the
@@ -54,6 +56,7 @@ Local evidence on 2026-11-11, macOS arm64, pinned tools above, default AddressSa
 |---|---|---|---|---|
 | MLLP | 701 | 4 KiB | 8,339,442 in 61 s | No invariant/sanitizer failure |
 | Wire/edit/ACK, after fix | 703 | 16 KiB | 592,269 in 61 s | No invariant/sanitizer failure |
+| Wire/edit/ACK and scalar views | 709 | 4 KiB | 265,868 in 46 s | No invariant/sanitizer failure |
 
 The wire campaign used the evolving synthetic corpus from an earlier run. These are finite
 campaigns, not performance measurements or complete coverage. An initial wire run found that an

@@ -1,5 +1,5 @@
 //! Small dependency-free baseline. Output is local timing, not a throughput guarantee.
-use octofhir_hl7v2::wire::Message;
+use octofhir_hl7v2::wire::{DateTime, Decimal, Message};
 use std::{hint::black_box, time::Instant};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -30,5 +30,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             input.len() as f64 * f64::from(iterations) / elapsed.as_secs_f64() / 1_048_576.0
         );
     }
+    let number = b"+00012345678901234567890.000123456789012345678900";
+    let timestamp = b"20240229235959.0100-0000";
+    let start = Instant::now();
+    for _ in 0..iterations {
+        black_box(Decimal::parse(black_box(number))?);
+    }
+    println!(
+        "decimal: {:.0} ns/lexical parse",
+        start.elapsed().as_nanos() as f64 / f64::from(iterations)
+    );
+    let start = Instant::now();
+    for _ in 0..iterations {
+        black_box(DateTime::parse(black_box(timestamp))?);
+    }
+    println!(
+        "DTM: {:.0} ns/lexical parse",
+        start.elapsed().as_nanos() as f64 / f64::from(iterations)
+    );
     Ok(())
 }
