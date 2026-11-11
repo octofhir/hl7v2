@@ -64,6 +64,7 @@ pub(crate) fn decode(
     delimiters: Delimiters,
 ) -> Result<Cow<'_, [u8]>, Error> {
     if !bytes.contains(&delimiters.encoding[2]) {
+        terminal(bytes, offset, delimiters.truncation)?;
         return Ok(Cow::Borrowed(bytes));
     }
     let mut output = Vec::with_capacity(bytes.len());
@@ -87,8 +88,22 @@ pub(crate) fn decode(
         }
         cursor = token.span.end - offset;
     }
+    terminal(&bytes[cursor..], offset + cursor, delimiters.truncation)?;
     output.extend_from_slice(&bytes[cursor..]);
     Ok(Cow::Owned(output))
+}
+
+// Terminal markers may denote truncation; escaped and nonterminal markers remain data.
+fn terminal(bytes: &[u8], offset: usize, truncation: Option<u8>) -> Result<(), Error> {
+    if let Some(marker) = truncation
+        && bytes.last() == Some(&marker)
+    {
+        return Err(Error::new(
+            ErrorKind::Truncation,
+            offset + bytes.len() - 1..offset + bytes.len(),
+        ));
+    }
+    Ok(())
 }
 
 fn hex(byte: u8) -> u8 {

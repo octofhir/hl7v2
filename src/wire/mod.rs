@@ -32,6 +32,7 @@ pub enum ErrorKind {
     Composite,
     Escape,
     InvalidHex,
+    Truncation,
     Path,
     EditConflict,
     InteriorUnset,

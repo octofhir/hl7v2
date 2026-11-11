@@ -22,9 +22,14 @@ The [README example](../README.md#available-now) uses normal error propagation a
 - Parsing accepts bytes without requiring UTF-8. It does not transcode MSH-18 character sets or process charset-switch escapes.
 - Structure is indexed before scalar decoding. Matched escapes are skipped during delimiter scanning. Unterminated escapes remain visible with diagnostics and do not swallow later structural positions.
 - `decode()` handles F/S/R/T/E, declared truncation P and valid hex escapes in one pass. Decoded separators/CR stay scalar data. A value with several children, an explicit null or a missing position cannot be decoded as one scalar.
+- An unescaped terminal truncation marker makes scalar decoding fail with `Truncation`, even if diagnostics were omitted. Nonterminal and escaped literal markers (`P` or hex) remain scalar data. Raw inspection and original emission still work; deciding a datatype's truncatability requires a versioned profile.
 - Formatting, highlighting, charset, local and unknown escapes remain raw. Scalar decoding refuses them and malformed hex/unterminated escapes explicitly. The public API exposes raw values and diagnostic ranges rather than a separate token object model.
 
 The wire rules were checked against the HL7 v2.5.1 [control chapter](https://hl7.eu/HL7v2x/v251/std251/ch02.html). This is not full version conformance or clinical validation. Code and fixtures were authored here; no upstream implementation or tests were copied.
+
+Terminal-marker handling was also checked against the v2.7 [truncation discussion](https://hl7.eu/HL7v2x/v27/std27/ch02.html).
+Generic decoding conservatively refuses possible truncation; version/datatype-specific truncation
+policies are not implemented. Nonterminal marker characters remain ordinary data.
 
 ## Editing and bounds
 

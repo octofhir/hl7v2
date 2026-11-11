@@ -173,13 +173,10 @@ impl Builder<'_> {
                     self.report(kind, token.span, path);
                 }
             }
-            if let Some(truncation) = delimiters.truncation {
-                for part in Parts::new(self.bytes, span.clone(), truncation, delimiters.encoding[2])
-                {
-                    if part.end < span.end {
-                        self.report(DiagnosticKind::Truncation, part.end..part.end + 1, path);
-                    }
-                }
+            if let Some(truncation) = delimiters.truncation
+                && self.bytes[span.clone()].last() == Some(&truncation)
+            {
+                self.report(DiagnosticKind::Truncation, span.end - 1..span.end, path);
             }
         }
         Ok(())
