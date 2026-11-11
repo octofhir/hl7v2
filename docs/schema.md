@@ -92,15 +92,20 @@ length 0–5 over three segment IDs. A separate schema fuzz target checks genera
 arbitrary flat definitions/cardinalities, source coverage and bounded matching failures.
 
 `HL7V2_BENCH_ITERS=100000 cargo bench --locked --offline --bench schema` separately times catalog
-compilation, cached-source resolution/grouping, and parse+resolve+group. Synthetic 1- and 1,000-patient
+compilation, cached-source resolution/grouping, cached-view field checks, parse+resolve+group, and
+parse+resolve+group+field checks. Synthetic 1- and 1,000-patient
 messages have fixed nested order/observation/note groups; the large case uses 1/1,000 of the
 configured iterations. Preflight checks source identity, group/segment coverage and occurrence count.
-There is no field/terminology/FHIR validation, allocation count or durability in these measurements.
+Field checks use explicit synthetic profiles with dynamic OBX-5 numeric typing. There is no
+conditional/terminology/FHIR validation, allocation count or durability in these measurements.
 They are not comparisons with other implementations or production throughput guarantees.
 
 No package loader, deterministic artifact digest, overlay compiler or approved versioned schema
 data ships here. The host must bind any cached catalog to its immutable processing assets; a
-release label alone is insufficient for durable replay. Field definitions/validation, dynamic
-OBX-5 typing, profile registration and logical FML models remain separate stages. The acquisition,
+release label alone is insufficient for durable replay. [Field definitions and checks](validation.md)
+form a separate pass: `Rule::typed_segment` binds a grammar role to an explicit named segment
+profile, `View::segments()` iterates source leaves, and `Occurrence::profile()` exposes that binding.
+`FieldSchema::check_catalog` verifies all bindings before activation. Conditional/terminology checks,
+profile registration and logical FML models remain separate stages. The acquisition,
 rights/provenance and completeness gates in the [implementation plan](implementation-plan.md)
 remain open. This module establishes a reusable structural engine, not an HL7 conformance claim.

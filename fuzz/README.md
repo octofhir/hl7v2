@@ -11,13 +11,15 @@ corpus entries and artifacts are ignored by Git.
 rustup toolchain install nightly-2026-09-27 --profile minimal
 cargo install cargo-fuzz --version 0.13.2 --locked
 cargo fetch --locked --manifest-path fuzz/Cargo.toml
-mkdir -p fuzz/corpus/wire fuzz/corpus/mllp fuzz/corpus/schema
+mkdir -p fuzz/corpus/wire fuzz/corpus/mllp fuzz/corpus/schema fuzz/corpus/validation
 cp tests/fixtures/*.er7 fuzz/corpus/wire/
 cp tests/fixtures/*.er7 fuzz/corpus/mllp/
 cp tests/fixtures/*.er7 fuzz/corpus/schema/
+cp tests/fixtures/*.er7 fuzz/corpus/validation/
 cargo +nightly-2026-09-27 fuzz run wire -- -dict=fuzz/wire.dict -seed=701 -max_total_time=60 -max_len=4096 -rss_limit_mb=512 -timeout=5
 cargo +nightly-2026-09-27 fuzz run mllp -- -dict=fuzz/mllp.dict -seed=701 -max_total_time=60 -max_len=4096 -rss_limit_mb=512 -timeout=5
 ASAN_OPTIONS=quarantine_size_mb=64:thread_local_quarantine_size_kb=256 cargo +nightly-2026-09-27 fuzz run schema -- -seed=733 -max_total_time=60 -max_len=16384 -rss_limit_mb=512 -timeout=5
+ASAN_OPTIONS=quarantine_size_mb=64:thread_local_quarantine_size_kb=256 cargo +nightly-2026-09-27 fuzz run validation -- -seed=743 -max_total_time=60 -max_len=16384 -rss_limit_mb=512 -timeout=5
 ```
 
 Requires a C++ compiler supported by libfuzzer-sys. Sanitization, debug assertions and overflow
@@ -26,7 +28,8 @@ The pinned toolchain, tool version and harness lockfile leave the library's stab
 unchanged. See the [Rust Fuzz Book](https://rust-fuzz.github.io/book/cargo-fuzz/guide.html).
 
 The harness caps input at 16 KiB and bounds parser nodes, segments and diagnostics. These smoke
-commands restrict generated inputs to 4 KiB, per-input runtime to 5 s and process RSS to 512 MiB.
+commands restrict wire/MLLP inputs to 4 KiB and schema/validation inputs to 16 KiB,
+per-input runtime to 5 s and process RSS to 512 MiB.
 RSS includes instrumentation and is not a library allocation measurement. A time-bound run can
 finish its last input after the nominal deadline. Longer campaigns can raise `max_total_time`
 and use `max_len=16384` without changing the harness's input boundary.
@@ -57,7 +60,13 @@ exercise resolution and direct shape matching. Definitions are capped at 64 rule
 4,096 compilation work units; source input is capped at 16 KiB/512 segments/8,192 wire nodes and
 matching at 1,024 occurrences/4,096 steps. No third-party schema data is included.
 
-The schema command retains ASAN instrumentation with a 64 MiB freed-block quarantine and 256 KiB
+`validation` mutates synthetic typed messages and field policies, including same-OBX selectors,
+null/empty/escaped values, numeric/date/TS lexemes and nested components. It checks source retention,
+issue spans/presence, report caps, charged byte/step limits and successful typed-read parity.
+Accepted raw wire seeds also exercise individual segment checks. The grammar remains synthetic;
+there is no copied standards catalog or terminology validation.
+
+The schema and validation commands retain ASAN instrumentation with a 64 MiB freed-block quarantine and 256 KiB
 thread-local quarantine to fit the 512 MiB process budget. An initial macOS run with the default
 quarantine reached that process limit: its report showed about 238 MiB quarantined and 25 MiB live
 heap, mostly libFuzzer. The emitted empty artifact replayed successfully. This harness setting is
@@ -77,6 +86,8 @@ Local evidence on 2026-11-11, macOS arm64, pinned tools above, AddressSanitizer 
 | Wire/edit/ACK and scalar views | 709 | 4 KiB | 265,868 in 46 s | No invariant/sanitizer failure |
 | Wire/TS/creation/edit/ACK | 719 | 16 KiB | 195,223 in 61 s | No invariant/sanitizer failure |
 | Schema, 64 MiB quarantine | 733 | 16 KiB | 437,059 in 61 s | No invariant/sanitizer failure |
+| Field validation, 64 MiB quarantine | 743 | 16 KiB | 587,861 in 61 s | No invariant/sanitizer failure |
+| Wire after terminal-truncation checks | 757 | 16 KiB | 139,401 in 46 s | No invariant/sanitizer failure |
 
 The wire campaign used the evolving synthetic corpus from an earlier run. These are finite
 campaigns, not performance measurements or complete coverage. An initial wire run found that an

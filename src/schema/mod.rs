@@ -1,4 +1,5 @@
 #![doc = include_str!("../../docs/schema.md")]
+pub mod fields;
 mod grammar;
 
 use crate::wire::{self, Message, Presence, Span};
@@ -81,6 +82,7 @@ impl Occurs {
 #[derive(Clone, Copy)]
 pub enum Content<'a> {
     Segment([u8; 3]),
+    TypedSegment { id: [u8; 3], profile: &'a str },
     Group(&'a [Rule<'a>]),
 }
 #[derive(Clone, Copy)]
@@ -90,6 +92,18 @@ pub struct Rule<'a> {
     pub content: Content<'a>,
 }
 impl<'a> Rule<'a> {
+    pub const fn typed_segment(
+        name: &'a str,
+        id: [u8; 3],
+        profile: &'a str,
+        occurs: Occurs,
+    ) -> Self {
+        Self {
+            name,
+            occurs,
+            content: Content::TypedSegment { id, profile },
+        }
+    }
     pub const fn segment(name: &'a str, id: [u8; 3], occurs: Occurs) -> Self {
         Self {
             name,

@@ -1,0 +1,443 @@
+#![doc = include_str!("../../../docs/validation.md")]
+mod run;
+
+use super::{Catalog, CompileLimits, Error, ErrorKind, Occurs, identifier};
+use crate::wire::{Message, Presence};
+pub use run::{Issue, IssueKind, Report, ValidationLimits};
+
+#[derive(Clone, Copy)]
+pub enum Primitive {
+    Bytes,
+    Ascii,
+    Utf8,
+    Number,
+    Date,
+    DateTime,
+}
+#[derive(Clone, Copy)]
+pub enum DatatypeKind<'a> {
+    Primitive(Primitive),
+    Composite(&'a [Element<'a>]),
+    Timestamp,
+}
+pub struct Datatype<'a> {
+    pub name: &'a str,
+    pub kind: DatatypeKind<'a>,
+}
+#[derive(Clone, Copy)]
+pub enum TypeRef<'a> {
+    Fixed(&'a str),
+    ByField {
+        selector: usize,
+        allowed: &'a [&'a str],
+    },
+}
+#[derive(Clone, Copy)]
+pub enum Length {
+    WireBytes(usize),
+    ScalarBytes(usize),
+    Utf8Characters(usize),
+}
+#[derive(Clone, Copy)]
+pub struct Element<'a> {
+    pub position: usize,
+    pub datatype: TypeRef<'a>,
+    pub occurs: Occurs,
+    pub nullable: bool,
+    pub length: Option<Length>,
+}
+impl<'a> Element<'a> {
+    pub const fn optional(position: usize, datatype: &'a str) -> Self {
+        Self {
+            position,
+            datatype: TypeRef::Fixed(datatype),
+            occurs: Occurs::OPTIONAL,
+            nullable: false,
+            length: None,
+        }
+    }
+    pub const fn required(position: usize, datatype: &'a str) -> Self {
+        Self {
+            occurs: Occurs::ONCE,
+            ..Self::optional(position, datatype)
+        }
+    }
+    pub const fn by_field(
+        position: usize,
+        selector: usize,
+        allowed: &'a [&'a str],
+        occurs: Occurs,
+    ) -> Self {
+        Self {
+            position,
+            datatype: TypeRef::ByField { selector, allowed },
+            occurs,
+            nullable: false,
+            length: None,
+        }
+    }
+}
+pub struct SegmentDefinition<'a> {
+    pub name: &'a str,
+    pub id: [u8; 3],
+    pub fields: &'a [Element<'a>],
+}
+
+enum Ref {
+    Fixed(usize),
+    ByField {
+        selector: usize,
+        allowed: Vec<usize>,
+    },
+}
+struct Slot {
+    position: usize,
+    datatype: Ref,
+    occurs: Occurs,
+    nullable: bool,
+    length: Option<Length>,
+}
+enum Kind {
+    Primitive(Primitive),
+    Composite(Vec<Slot>),
+    Timestamp,
+}
+struct Type<'a> {
+    name: &'a str,
+    kind: Kind,
+}
+struct Segment<'a> {
+    name: &'a str,
+    id: [u8; 3],
+    fields: Vec<Slot>,
+}
+/// Immutable caller-defined datatypes and named segment profiles; no bundled standards data.
+pub struct FieldSchema<'a> {
+    types: Vec<Type<'a>>,
+    segments: Vec<Segment<'a>>,
+}
+
+impl<'a> FieldSchema<'a> {
+    pub fn compile(
+        types: &'a [Datatype<'a>],
+        segments: &'a [SegmentDefinition<'a>],
+        limits: CompileLimits,
+    ) -> Result<Self, Error> {
+        if limits.max_depth == 0 || limits.max_depth > 64 || limits.max_work == 0 {
+            return Err(definition());
+        }
+        let mut budget = limits.max_rules;
+        let mut work = limits.max_work;
+        take(&mut budget, types.len())?;
+        take(&mut budget, segments.len())?;
+        take(&mut work, types.len())?;
+        take(&mut work, segments.len())?;
+        if types.iter().any(|t| !identifier(t.name))
+            || segments.iter().any(|s| {
+                !identifier(s.name)
+                    || !s
+                        .id
+                        .iter()
+                        .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+            })
+        {
+            return Err(definition());
+        }
+        let mut type_defs: Vec<_> = types.iter().collect();
+        type_defs.sort_unstable_by_key(|t| t.name);
+        let mut segment_defs: Vec<_> = segments.iter().collect();
+        segment_defs.sort_unstable_by_key(|s| s.name);
+        if type_defs.windows(2).any(|p| p[0].name == p[1].name)
+            || segment_defs.windows(2).any(|p| p[0].name == p[1].name)
+        {
+            return Err(definition());
+        }
+        let names: Vec<_> = type_defs.iter().map(|t| t.name).collect();
+        let mut compiled = Vec::with_capacity(type_defs.len());
+        for datatype in type_defs {
+            let kind = match datatype.kind {
+                DatatypeKind::Primitive(p) => Kind::Primitive(p),
+                DatatypeKind::Timestamp => Kind::Timestamp,
+                DatatypeKind::Composite(elements) => {
+                    if elements.is_empty() {
+                        return Err(definition());
+                    }
+                    Kind::Composite(slots(
+                        elements,
+                        false,
+                        &names,
+                        limits.max_rules,
+                        &mut budget,
+                        &mut work,
+                    )?)
+                }
+            };
+            compiled.push(Type {
+                name: datatype.name,
+                kind,
+            });
+        }
+        let mut states = vec![0; compiled.len()];
+        for i in 0..compiled.len() {
+            depth(i, &compiled, &mut states, limits.max_depth, &mut work)?;
+        }
+        let mut result = Self {
+            types: compiled,
+            segments: Vec::with_capacity(segment_defs.len()),
+        };
+        for segment in segment_defs {
+            let fields = slots(
+                segment.fields,
+                true,
+                &names,
+                limits.max_rules,
+                &mut budget,
+                &mut work,
+            )?;
+            for slot in &fields {
+                if let Ref::ByField { selector, .. } = &slot.datatype {
+                    let index = fields
+                        .binary_search_by_key(selector, |s| s.position)
+                        .map_err(|_| definition())?;
+                    let source = &fields[index];
+                    if source.occurs.max != Some(1)
+                        || !matches!(source.datatype, Ref::Fixed(i) if matches!(result.types[i].kind, Kind::Primitive(Primitive::Bytes | Primitive::Ascii | Primitive::Utf8)))
+                    {
+                        return Err(definition());
+                    }
+                }
+                if segment.id == *b"MSH"
+                    && slot.position <= 2
+                    && (!matches!(slot.datatype, Ref::Fixed(i) if matches!(result.types[i].kind, Kind::Primitive(_)))
+                        || slot.occurs.max != Some(1))
+                {
+                    return Err(definition());
+                }
+                check_length(slot, &result.types)?;
+            }
+            result.segments.push(Segment {
+                name: segment.name,
+                id: segment.id,
+                fields,
+            });
+        }
+        for datatype in &result.types {
+            if let Kind::Composite(slots) = &datatype.kind {
+                for slot in slots {
+                    check_length(slot, &result.types)?;
+                }
+            }
+        }
+        Ok(result)
+    }
+    /// Verify every grammar leaf has an explicit, matching field profile before activation.
+    pub fn check_catalog(&self, catalog: &Catalog<'_>) -> Result<(), Error> {
+        for structure in &catalog.structures {
+            for (id, profile) in structure.profiles() {
+                let segment = profile
+                    .and_then(|p| self.profile(p))
+                    .ok_or_else(definition)?;
+                if segment.id != id {
+                    return Err(definition());
+                }
+            }
+        }
+        Ok(())
+    }
+    /// Resolve a declared field's exact type; dynamic selectors are read from this same segment.
+    pub fn datatype(
+        &self,
+        message: &Message,
+        profile: &str,
+        path: &[usize; 2],
+    ) -> Result<&str, Issue> {
+        let segment = self
+            .profile(profile)
+            .filter(|s| {
+                message
+                    .segment(path[0])
+                    .is_some_and(|actual| actual.id() == &s.id)
+            })
+            .ok_or_else(|| Issue::at(message, &path[..1], IssueKind::Profile))?;
+        let field = segment
+            .fields
+            .binary_search_by_key(&path[1], |s| s.position)
+            .map_err(|_| Issue::at(message, path, IssueKind::Unmodeled))?;
+        self.resolve(message, path[0], &segment.fields[field])
+            .map(|i| self.types[i].name)
+    }
+    fn profile(&self, name: &str) -> Option<&Segment<'a>> {
+        self.segments
+            .binary_search_by_key(&name, |s| s.name)
+            .ok()
+            .map(|i| &self.segments[i])
+    }
+    fn resolve(&self, message: &Message, segment: usize, slot: &Slot) -> Result<usize, Issue> {
+        match &slot.datatype {
+            Ref::Fixed(i) => Ok(*i),
+            Ref::ByField { selector, allowed } => {
+                let path = [segment, *selector];
+                let value = message.value(&path);
+                if value.presence() != Presence::Value {
+                    return Err(Issue::at(
+                        message,
+                        &path,
+                        IssueKind::Selector {
+                            target: slot.position,
+                        },
+                    ));
+                }
+                if value.raw().is_some_and(|b| b.len() > 320) {
+                    return Err(Issue::at(
+                        message,
+                        &path,
+                        IssueKind::UnknownDatatype {
+                            target: slot.position,
+                        },
+                    ));
+                }
+                let bytes = value
+                    .decode()
+                    .map_err(|e| Issue::wire(message, &path, e, false))?;
+                let index = self
+                    .types
+                    .binary_search_by(|t| t.name.as_bytes().cmp(&bytes))
+                    .ok()
+                    .filter(|i| allowed.binary_search(i).is_ok());
+                index.ok_or_else(|| {
+                    Issue::at(
+                        message,
+                        &path,
+                        IssueKind::UnknownDatatype {
+                            target: slot.position,
+                        },
+                    )
+                })
+            }
+        }
+    }
+}
+fn definition() -> Error {
+    Error::new(ErrorKind::Definition)
+}
+fn take(budget: &mut usize, count: usize) -> Result<(), Error> {
+    *budget = budget
+        .checked_sub(count)
+        .ok_or_else(|| Error::new(ErrorKind::Limit))?;
+    Ok(())
+}
+fn slots(
+    elements: &[Element<'_>],
+    field: bool,
+    names: &[&str],
+    maximum: usize,
+    budget: &mut usize,
+    work: &mut usize,
+) -> Result<Vec<Slot>, Error> {
+    take(budget, elements.len())?;
+    take(work, elements.len())?;
+    let mut result = Vec::with_capacity(elements.len());
+    for element in elements {
+        if element.position == 0
+            || element.position > maximum
+            || element
+                .occurs
+                .max
+                .is_some_and(|max| max < element.occurs.min)
+            || (!field && (element.occurs.min > 1 || element.occurs.max.is_none_or(|max| max > 1)))
+        {
+            return Err(definition());
+        }
+        let lookup = |name: &str| names.binary_search(&name).map_err(|_| definition());
+        let datatype = match element.datatype {
+            TypeRef::Fixed(name) => Ref::Fixed(lookup(name)?),
+            TypeRef::ByField { selector, allowed } => {
+                if !field || selector == 0 || selector == element.position || allowed.is_empty() {
+                    return Err(definition());
+                }
+                take(budget, allowed.len())?;
+                take(work, allowed.len())?;
+                let mut types = allowed
+                    .iter()
+                    .map(|name| lookup(name))
+                    .collect::<Result<Vec<_>, _>>()?;
+                types.sort_unstable();
+                if types.windows(2).any(|p| p[0] == p[1]) {
+                    return Err(definition());
+                }
+                Ref::ByField {
+                    selector,
+                    allowed: types,
+                }
+            }
+        };
+        result.push(Slot {
+            position: element.position,
+            datatype,
+            occurs: element.occurs,
+            nullable: element.nullable,
+            length: element.length,
+        });
+    }
+    result.sort_unstable_by_key(|s| s.position);
+    if result.windows(2).any(|p| p[0].position == p[1].position) {
+        return Err(definition());
+    }
+    Ok(result)
+}
+fn depth(
+    index: usize,
+    types: &[Type<'_>],
+    states: &mut [u8],
+    remaining: usize,
+    work: &mut usize,
+) -> Result<u8, Error> {
+    take(work, 1)?;
+    if states[index] >= 2 {
+        let cached = states[index] - 2;
+        return if usize::from(cached) < remaining {
+            Ok(cached)
+        } else {
+            Err(Error::new(ErrorKind::Limit))
+        };
+    }
+    if states[index] == 1 {
+        return Err(definition());
+    }
+    if remaining == 0 {
+        return Err(Error::new(ErrorKind::Limit));
+    }
+    states[index] = 1;
+    let mut maximum = match types[index].kind {
+        Kind::Primitive(_) => 0,
+        _ => 1,
+    };
+    if let Kind::Composite(slots) = &types[index].kind {
+        for slot in slots {
+            if let Ref::Fixed(child) = slot.datatype {
+                maximum = maximum.max(1 + depth(child, types, states, remaining - 1, work)?);
+            }
+        }
+    }
+    if maximum > 2 {
+        return Err(definition());
+    }
+    states[index] = maximum + 2;
+    Ok(maximum)
+}
+fn check_length(slot: &Slot, types: &[Type<'_>]) -> Result<(), Error> {
+    if matches!(
+        slot.length,
+        Some(Length::ScalarBytes(_) | Length::Utf8Characters(_))
+    ) {
+        let scalar = |i: usize| matches!(types[i].kind, Kind::Primitive(_));
+        let valid = match &slot.datatype {
+            Ref::Fixed(i) => scalar(*i),
+            Ref::ByField { allowed, .. } => allowed.iter().all(|i| scalar(*i)),
+        };
+        if !valid {
+            return Err(definition());
+        }
+    }
+    Ok(())
+}

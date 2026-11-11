@@ -1,24 +1,30 @@
-//! Synthetic grouping timings; no field, terminology, FHIR or durability validation.
+//! Separate synthetic grouping/field-check timings; no terminology, FHIR or durability validation.
 use octofhir_hl7v2::{
-    schema::{Binding, Catalog, CompileLimits, MatchLimits, Occurs, Rule, Structure},
+    schema::{
+        Binding, Catalog, CompileLimits, MatchLimits, Occurs, Rule, Structure,
+        fields::{
+            Datatype, DatatypeKind as K, Element as E, FieldSchema, Primitive as P,
+            SegmentDefinition as S, ValidationLimits,
+        },
+    },
     wire::Message,
 };
 use std::{hint::black_box, time::Instant};
 
 const OBS: &[Rule<'_>] = &[
-    Rule::segment("obx", *b"OBX", Occurs::ONCE),
-    Rule::segment("nte", *b"NTE", Occurs::MANY),
+    Rule::typed_segment("obx", *b"OBX", "Observation", Occurs::ONCE),
+    Rule::typed_segment("nte", *b"NTE", "Note", Occurs::MANY),
 ];
 const ORDER: &[Rule<'_>] = &[
-    Rule::segment("obr", *b"OBR", Occurs::ONCE),
+    Rule::typed_segment("obr", *b"OBR", "Order", Occurs::ONCE),
     Rule::group("observation", OBS, Occurs::MANY),
 ];
 const PATIENT: &[Rule<'_>] = &[
-    Rule::segment("pid", *b"PID", Occurs::ONCE),
+    Rule::typed_segment("pid", *b"PID", "Patient", Occurs::ONCE),
     Rule::group("order", ORDER, Occurs::MANY),
 ];
 const ROOT: &[Rule<'_>] = &[
-    Rule::segment("msh", *b"MSH", Occurs::ONCE),
+    Rule::typed_segment("msh", *b"MSH", "Header", Occurs::ONCE),
     Rule::group("patient", PATIENT, Occurs::MANY),
 ];
 const STRUCTURES: &[Structure<'_>] = &[Structure {
@@ -30,6 +36,78 @@ const BINDINGS: &[Binding<'_>] = &[Binding {
     event: "Z01",
     structure: "SYNTHETIC",
 }];
+const TYPES: &[Datatype<'_>] = &[
+    Datatype {
+        name: "B",
+        kind: K::Primitive(P::Bytes),
+    },
+    Datatype {
+        name: "ID",
+        kind: K::Primitive(P::Ascii),
+    },
+    Datatype {
+        name: "ST",
+        kind: K::Primitive(P::Utf8),
+    },
+    Datatype {
+        name: "NM",
+        kind: K::Primitive(P::Number),
+    },
+    Datatype {
+        name: "MSG",
+        kind: K::Composite(&[
+            E::required(1, "ID"),
+            E::required(2, "ID"),
+            E::required(3, "ID"),
+        ]),
+    },
+];
+const PROFILES: &[S<'_>] = &[
+    S {
+        name: "Header",
+        id: *b"MSH",
+        fields: &[
+            E::required(1, "B"),
+            E::required(2, "B"),
+            E::optional(3, "ST"),
+            E::optional(4, "ST"),
+            E::optional(5, "ST"),
+            E::optional(6, "ST"),
+            E::optional(7, "B"),
+            E::optional(8, "B"),
+            E::required(9, "MSG"),
+            E::optional(10, "ID"),
+            E::optional(11, "ID"),
+            E::required(12, "ID"),
+        ],
+    },
+    S {
+        name: "Patient",
+        id: *b"PID",
+        fields: &[E::required(1, "ST")],
+    },
+    S {
+        name: "Order",
+        id: *b"OBR",
+        fields: &[E::required(1, "ST")],
+    },
+    S {
+        name: "Observation",
+        id: *b"OBX",
+        fields: &[
+            E::optional(1, "ID"),
+            E::required(2, "ID"),
+            E::optional(3, "ST"),
+            E::optional(4, "ID"),
+            E::by_field(5, 2, &["NM"], Occurs::MANY),
+        ],
+    },
+    S {
+        name: "Note",
+        id: *b"NTE",
+        fields: &[E::optional(1, "ID"), E::optional(3, "ST")],
+    },
+];
 type Result = std::result::Result<(), Box<dyn std::error::Error>>;
 
 fn main() -> Result {
@@ -39,6 +117,8 @@ fn main() -> Result {
         .unwrap_or(10_000)
         .max(1);
     let catalog = Catalog::compile("TEST", STRUCTURES, BINDINGS, CompileLimits::default())?;
+    let fields = FieldSchema::compile(TYPES, PROFILES, CompileLimits::default())?;
+    fields.check_catalog(&catalog)?;
     let start = Instant::now();
     for _ in 0..iterations {
         black_box(Catalog::compile(
@@ -52,10 +132,15 @@ fn main() -> Result {
         "compile synthetic catalog: {:.0} ns/catalog",
         start.elapsed().as_nanos() as f64 / f64::from(iterations)
     );
-    run(&catalog, 1, iterations)?;
-    run(&catalog, 1000, (iterations / 1000).max(1))
+    run(&catalog, &fields, 1, iterations)?;
+    run(&catalog, &fields, 1000, (iterations / 1000).max(1))
 }
-fn run(catalog: &Catalog<'_>, patients: usize, iterations: u32) -> Result {
+fn run(
+    catalog: &Catalog<'_>,
+    fields: &FieldSchema<'_>,
+    patients: usize,
+    iterations: u32,
+) -> Result {
     let mut bytes = b"MSH|^~\\&|S|S|T|T|20261111||ZZZ^Z01^SYNTHETIC|id|T|TEST\r".to_vec();
     for _ in 0..patients {
         bytes.extend_from_slice(b"PID|synthetic-patient\rOBR|synthetic-order\r");
@@ -78,6 +163,11 @@ fn run(catalog: &Catalog<'_>, patients: usize, iterations: u32) -> Result {
         patients
     );
     assert_eq!(view.occurrence_count(), 2 + 13 * patients);
+    assert!(
+        fields
+            .validate(&view, ValidationLimits::default())
+            .is_valid()
+    );
     println!(
         "synthetic: {patients} patients, {} bytes, {} segments, {iterations} iterations",
         bytes.len(),
@@ -106,6 +196,24 @@ fn run(catalog: &Catalog<'_>, patients: usize, iterations: u32) -> Result {
     }
     println!(
         "  parse+resolve+group: {:.0} ns/message",
+        start.elapsed().as_nanos() as f64 / f64::from(iterations)
+    );
+    let start = Instant::now();
+    for _ in 0..iterations {
+        black_box(fields.validate(&view, ValidationLimits::default()));
+    }
+    println!(
+        "  field checks cached view: {:.0} ns/message",
+        start.elapsed().as_nanos() as f64 / f64::from(iterations)
+    );
+    let start = Instant::now();
+    for _ in 0..iterations {
+        let source = Message::parse(black_box(&bytes))?;
+        let view = catalog.group(&source, MatchLimits::default())?;
+        black_box(fields.validate(&view, ValidationLimits::default()));
+    }
+    println!(
+        "  parse+resolve+group+field checks: {:.0} ns/message",
         start.elapsed().as_nanos() as f64 / f64::from(iterations)
     );
     Ok(())

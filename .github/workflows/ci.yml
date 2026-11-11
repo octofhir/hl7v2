@@ -98,10 +98,11 @@ jobs:
       - name: Prepare synthetic seeds
         run: |
           cargo +nightly-2026-09-27 fetch --locked --manifest-path fuzz/Cargo.toml
-          mkdir -p fuzz/corpus/wire fuzz/corpus/mllp fuzz/corpus/schema
+          mkdir -p fuzz/corpus/wire fuzz/corpus/mllp fuzz/corpus/schema fuzz/corpus/validation
           cp tests/fixtures/*.er7 fuzz/corpus/wire/
           cp tests/fixtures/*.er7 fuzz/corpus/mllp/
           cp tests/fixtures/*.er7 fuzz/corpus/schema/
+          cp tests/fixtures/*.er7 fuzz/corpus/validation/
       - name: Fuzz ER7, edits and ACKs
         run: cargo +nightly-2026-09-27 fuzz run wire -- -dict=fuzz/wire.dict -seed=701 -max_total_time=30 -max_len=4096 -rss_limit_mb=512 -timeout=5
       - name: Fuzz MLLP framing
@@ -110,6 +111,10 @@ jobs:
         env:
           ASAN_OPTIONS: "quarantine_size_mb=64:thread_local_quarantine_size_kb=256"
         run: cargo +nightly-2026-09-27 fuzz run schema -- -seed=733 -max_total_time=30 -max_len=16384 -rss_limit_mb=512 -timeout=5
+      - name: Fuzz field profiles and dynamic datatypes
+        env:
+          ASAN_OPTIONS: "quarantine_size_mb=64:thread_local_quarantine_size_kb=256"
+        run: cargo +nightly-2026-09-27 fuzz run validation -- -seed=743 -max_total_time=30 -max_len=16384 -rss_limit_mb=512 -timeout=5
       - name: Retain failing synthetic inputs
         if: failure()
         uses: actions/upload-artifact@v4

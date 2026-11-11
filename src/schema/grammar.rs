@@ -6,6 +6,7 @@ struct CompiledRule<'a> {
     name: &'a str,
     occurs: Occurs,
     segment: Option<[u8; 3]>,
+    profile: Option<&'a str>,
     children: Range<usize>,
     first: Vec<[u8; 3]>,
 }
@@ -14,6 +15,11 @@ pub struct StructureSchema<'a> {
     rules: Vec<CompiledRule<'a>>,
 }
 impl StructureSchema<'_> {
+    pub(super) fn profiles(&self) -> impl Iterator<Item = ([u8; 3], Option<&str>)> {
+        self.rules
+            .iter()
+            .filter_map(|r| r.segment.map(|id| (id, r.profile)))
+    }
     pub fn name(&self) -> &str {
         self.rules[0].name
     }
@@ -50,7 +56,7 @@ pub(super) fn compile<'a>(
     work: &mut usize,
 ) -> Result<StructureSchema<'a>, Error> {
     if definition.rules.first().is_none_or(|r| {
-        !matches!(r.content, Content::Segment(id) if id == *b"MSH") || r.occurs != Occurs::ONCE
+        !matches!(r.content, Content::Segment(id) | Content::TypedSegment { id, .. } if id == *b"MSH") || r.occurs != Occurs::ONCE
     }) {
         return Err(Error::new(ErrorKind::Definition));
     }
@@ -59,6 +65,7 @@ pub(super) fn compile<'a>(
         name: definition.name,
         occurs: Occurs::ONCE,
         segment: None,
+        profile: None,
         children: 0..0,
         first: Vec::new(),
     }];
@@ -116,7 +123,7 @@ fn fill<'a>(
             return Err(Error::new(ErrorKind::Definition).rule(index));
         }
         let segment = match rule.content {
-            Content::Segment(id) => {
+            Content::Segment(id) | Content::TypedSegment { id, .. } => {
                 if !id
                     .iter()
                     .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
@@ -128,10 +135,20 @@ fn fill<'a>(
             }
             Content::Group(_) => None,
         };
+        let profile = match rule.content {
+            Content::TypedSegment { profile, .. } => {
+                if !identifier(profile) {
+                    return Err(Error::new(ErrorKind::Definition).rule(index));
+                }
+                Some(profile)
+            }
+            _ => None,
+        };
         nodes.push(CompiledRule {
             name: rule.name,
             occurs: rule.occurs,
             segment,
+            profile,
             children: 0..0,
             first: segment.into_iter().collect(),
         });
@@ -263,6 +280,14 @@ pub struct View<'s, 'm> {
     nodes: Vec<Node>,
 }
 impl<'s, 'm> View<'s, 'm> {
+    /// All segment leaves in source order, retaining their schema roles and field profiles.
+    pub fn segments(&self) -> impl Iterator<Item = Occurrence<'_, 's, 'm>> {
+        self.nodes.iter().enumerate().filter_map(|(index, node)| {
+            self.schema.rules[node.rule]
+                .segment
+                .map(|_| Occurrence { view: self, index })
+        })
+    }
     pub fn message(&self) -> &'m Message {
         self.message
     }
@@ -282,6 +307,9 @@ pub struct Occurrence<'v, 's, 'm> {
     index: usize,
 }
 impl<'v, 's, 'm> Occurrence<'v, 's, 'm> {
+    pub fn profile(self) -> Option<&'s str> {
+        self.view.schema.rules[self.view.nodes[self.index].rule].profile
+    }
     pub fn name(self) -> &'s str {
         self.view.schema.rules[self.view.nodes[self.index].rule].name
     }

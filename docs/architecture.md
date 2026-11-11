@@ -135,10 +135,13 @@ The editor needs explicit unset/empty/null/value operations. Retain the immutabl
 
 ## Versioned schemas
 
-Implemented structural subset: the [schema engine](schema.md) compiles caller-supplied sequence/group
+Implemented subset: the [schema engine](schema.md) compiles caller-supplied sequence/group
 definitions, resolves exact release/event/structure bindings and borrows wire segment occurrences.
-It rejects unsupported profiles/local version variants and ambiguous grammars. Versioned data,
-artifact import/digests, overlays and field/datatype validation below remain design and release gates.
+It rejects unsupported envelope profiles/local version variants and ambiguous grammars. A separate
+[field-profile pass](validation.md) checks presence/cardinality, explicit length units and lexical
+datatypes, including same-segment selectors for OBX-5. It reads the indexed original without a JSON
+projection and bounds steps, cumulative bytes and retained reports. Versioned data, artifact
+import/digests, overlays, conditional rules and terminology remain design and release gates.
 
 ### Source investigation and selection
 

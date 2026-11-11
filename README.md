@@ -7,7 +7,7 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
 </p>
 
-> ER7 parsing/editing, MLLP/ACK, caller-supplied schema grouping, optional async receiver and PostgreSQL custody are implemented. Versioned standards catalogs, FHIR maps and clinical processing are planned.
+> ER7 parsing/editing, MLLP/ACK, caller-supplied schema grouping and field checks, optional async receiver and PostgreSQL custody are implemented. Versioned standards catalogs, FHIR maps and clinical processing are planned.
 
 ## Available now
 
@@ -28,7 +28,10 @@ See the [wire API and limitations](docs/wire.md).
 The dependency-free [schema engine](docs/schema.md) compiles caller-supplied sequence/group rules,
 resolves exact release and event/structure bindings, and exposes nested/repeated group views over
 original segment occurrences. Ambiguous grammars and unsupported envelope/profile variants fail
-explicitly. Approved versioned catalogs, import/overlays and field/datatype validation remain planned.
+explicitly. Separate [field profiles](docs/validation.md) check presence, cardinality, explicit length
+units and datatype lexemes, including OBX-5 types selected by the same OBX's OBX-2. Checks retain
+source coordinates and have work/byte/report budgets. Approved versioned catalogs, import/overlays,
+conditional rules and terminology validation remain planned.
 
 The [MLLP codec](docs/mllp.md) handles fragmented/coalesced frames, an explicit payload limit,
 incomplete EOF and framing errors. It returns one borrowed payload at a time and retains no output
@@ -71,17 +74,19 @@ cargo test --locked --offline
 cargo test --locked --offline --all-features
 cargo run --offline --example inspect -- tests/fixtures/adt.er7
 cargo bench --offline --bench wire
+cargo bench --offline --bench schema
 ```
 
-The package has not been published to crates.io. Benchmark output separates local parser/index,
-lexical, prepared-edit serialization and complete edit/reindex timings,
-without schema validation, transport, durability or FHIR processing.
+The package has not been published to crates.io. The wire benchmark separates local parser/index,
+lexical, prepared-edit serialization and complete edit/reindex timings. The schema benchmark
+separates grouping, field checks and complete parse/group/check timings over synthetic profiles.
+Neither includes transport, durability, terminology or FHIR processing.
 Tokio, SQLx and SHA-256 are optional library infrastructure; development tests also use Tokio.
 No third-party HL7 implementation is used. PostgreSQL tests require an explicitly configured
 dedicated database and are listed as ignored by the normal test command; see the inbox guide.
 
 [Coverage-guided fuzzing](fuzz/README.md) runs separately with pinned nightly tooling and synthetic
-seeds. It checks ER7 spans/edits/ACKs, MLLP chunking/limits and schema compilation/grouping
+seeds. It checks ER7 spans/edits/ACKs, MLLP chunking/limits, schema compilation/grouping and field checks
 without adding runtime dependencies.
 
 ## Direction
