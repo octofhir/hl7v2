@@ -39,6 +39,8 @@ deduplicates scoped deliveries and retains conflicting payloads. Its supported c
 enhanced `AL/NE`; it returns `CA` after commit. [Work-state APIs](docs/work.md) add durable claims,
 leases, attempt history, retry scheduling and quarantine. The host owns the execution loop and
 clinical application; there is no FML/FHIR processor yet. Database schema setup and interface admission are host policy.
+An audited [quarantine replay](docs/replay.md) can grant another bounded run with the same pinned
+plan while preserving generations, prior attempts, original bytes and custody ACKs.
 
 ```rust
 use octofhir_hl7v2::wire::{Message, Presence};

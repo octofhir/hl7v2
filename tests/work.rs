@@ -10,16 +10,19 @@ use sqlx::{
 };
 use std::{
     collections::HashSet,
+    sync::atomic::{AtomicU64, Ordering},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 const PLAN: [u8; 32] = [42; 32];
+static NEXT_SCOPE: AtomicU64 = AtomicU64::new(0);
 
 async fn fixture(count: usize) -> Result<(PgPool, Inbox, String)> {
     let scope = format!(
-        "work-{}-{}",
+        "work-{}-{}-{}",
         std::process::id(),
-        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos()
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos(),
+        NEXT_SCOPE.fetch_add(1, Ordering::Relaxed)
     );
     let options: PgConnectOptions = std::env::var("HL7V2_TEST_DATABASE_URL")?.parse()?;
     let pool = PgPoolOptions::new()
@@ -71,7 +74,7 @@ async fn due(pool: &PgPool, id: i64) -> Result {
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated PostgreSQL with migrations 0001 and 0002"]
+#[ignore = "requires dedicated PostgreSQL with migrations 0001 through 0003"]
 async fn concurrent_claims_are_scoped_plan_exact_and_skip_locked_rows() -> Result {
     let (pool, inbox, scope) = fixture(8).await?;
     assert!(matches!(
@@ -142,7 +145,7 @@ async fn concurrent_claims_are_scoped_plan_exact_and_skip_locked_rows() -> Resul
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated PostgreSQL with migrations 0001 and 0002"]
+#[ignore = "requires dedicated PostgreSQL with migrations 0001 through 0003"]
 async fn expiry_is_checked_after_lock_wait_and_stale_generation_cannot_finish() -> Result {
     let (pool, inbox, scope) = fixture(1).await?;
     let options = ClaimOptions {
@@ -218,7 +221,7 @@ async fn expiry_is_checked_after_lock_wait_and_stale_generation_cannot_finish() 
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated PostgreSQL with migrations 0001 and 0002"]
+#[ignore = "requires dedicated PostgreSQL with migrations 0001 through 0003"]
 async fn retry_budget_is_pinned_and_expired_last_attempt_is_quarantined() -> Result {
     let (pool, inbox, scope) = fixture(1).await?;
     let first = work(
@@ -320,7 +323,7 @@ async fn retry_budget_is_pinned_and_expired_last_attempt_is_quarantined() -> Res
 }
 
 #[tokio::test]
-#[ignore = "requires dedicated PostgreSQL with migrations 0001 and 0002"]
+#[ignore = "requires dedicated PostgreSQL with migrations 0001 through 0003"]
 async fn failed_completion_commit_keeps_attempt_active_and_outcome_atomic() -> Result {
     let (pool, inbox, scope) = fixture(1).await?;
     let lease = work(

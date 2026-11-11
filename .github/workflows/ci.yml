@@ -62,6 +62,8 @@ jobs:
         run: cargo test --locked --all-features --test inbox -- --ignored --skip recovery_across_postgres_crash
       - name: Test leases and work outcomes
         run: cargo test --locked --all-features --test work -- --ignored --skip work_recovery_across_postgres_crash
+      - name: Test quarantine replay
+        run: cargo test --locked --all-features --test replay -- --ignored --skip replay_recovery_across_postgres_crash
       - name: Test insert-only custody role
         run: |
           psql "$HL7V2_TEST_DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -c "CREATE ROLE hl7v2_custody LOGIN PASSWORD 'custody'; GRANT USAGE ON SCHEMA hl7v2 TO hl7v2_custody; GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA hl7v2 TO hl7v2_custody; GRANT USAGE ON ALL SEQUENCES IN SCHEMA hl7v2 TO hl7v2_custody;"
@@ -70,6 +72,7 @@ jobs:
         run: |
           HL7V2_RECOVERY_PHASE=seed cargo test --locked --all-features --test inbox recovery_across_postgres_crash -- --ignored
           HL7V2_RECOVERY_PHASE=seed cargo test --locked --all-features --test work work_recovery_across_postgres_crash -- --ignored
+          HL7V2_RECOVERY_PHASE=seed cargo test --locked --all-features --test replay replay_recovery_across_postgres_crash -- --ignored
       - name: Crash and restart test database
         env:
           TEST_DATABASE_CONTAINER: ${{ job.services.database.id }}
@@ -81,6 +84,7 @@ jobs:
         run: |
           HL7V2_RECOVERY_PHASE=verify cargo test --locked --all-features --test inbox recovery_across_postgres_crash -- --ignored
           HL7V2_RECOVERY_PHASE=verify cargo test --locked --all-features --test work work_recovery_across_postgres_crash -- --ignored
+          HL7V2_RECOVERY_PHASE=verify cargo test --locked --all-features --test replay replay_recovery_across_postgres_crash -- --ignored
 
   fuzz:
     runs-on: ubuntu-latest

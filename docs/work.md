@@ -2,8 +2,10 @@
 
 The optional PostgreSQL adapter exposes bounded work-state transactions, not a background daemon.
 The host polls `Inbox::claim`, resolves the pinned assets, executes its processor and manages
-shutdown. Apply [0002_work.sql](../migrations/0002_work.sql) once after the custody migration;
-the SQL is also exported as `inbox::WORK_SCHEMA`. Existing payload, plan and ACK bytes are unchanged.
+shutdown. Apply ordered migrations [0002_work.sql](../migrations/0002_work.sql) and
+[0003_replay.sql](../migrations/0003_replay.sql) after the custody migration. The SQL is exported
+as `inbox::WORK_SCHEMA` and `inbox::REPLAY_SCHEMA`. This version's work APIs require both.
+Existing payload, plan and ACK bytes are unchanged.
 
 ```no_run
 use octofhir_hl7v2::inbox::{Claim, ClaimOptions, Inbox, Outcome};
@@ -34,7 +36,8 @@ bytes without another source copy. The claim checks payload length and SHA-256 b
 work. Original wire bytes and the selected plan are never replaced by a retry.
 
 The first claim pins `max_attempts` (1–1000, default 5). Later calls cannot reset that budget by
-passing another limit. The lease duration is 1 ms–1 h, default 60 s. PostgreSQL wall-clock time
+passing another limit. Only an audited [quarantine replay](replay.md) can grant another bounded run;
+the absolute generation keeps increasing. The lease duration is 1 ms–1 h, default 60 s. PostgreSQL wall-clock time
 controls due work and expiry; client timestamps and transaction-start `now()` do not authorize
 renewal. Database clock changes can affect expiry, so deployments must maintain their clock.
 See [current time functions](https://www.postgresql.org/docs/14/functions-datetime.html#FUNCTIONS-DATETIME-CURRENT).
@@ -85,7 +88,7 @@ roll back or fence an unrelated database transaction, HTTP write or detached tas
 Clinical changes require a sink that atomically validates the fencing token and writes its durable
 application receipt with the target changes, or a target-side idempotency/reconciliation contract.
 Do not use attempt generation as a new clinical effect identity on retries. That sink, R4 validation,
-entity ordering/ownership, reviewed replay/reprocessing and ACK emission history remain unimplemented.
+entity ordering/ownership, new-plan reprocessing and ACK emission history remain unimplemented.
 Enhanced AL/NE custody ACKs stay unchanged when work completes, retries or quarantines.
 
 Worker database roles need SELECT plus UPDATE on the inbox work columns, and SELECT/INSERT/UPDATE
@@ -94,7 +97,7 @@ of scopes remains host policy; this adapter does not install tenant RLS or creat
 
 ## Verification
 
-On a dedicated database with both migrations applied:
+On a dedicated database with all migrations applied:
 
 ```sh
 cargo test --locked --all-features --test work -- --ignored --skip work_recovery_across_postgres_crash

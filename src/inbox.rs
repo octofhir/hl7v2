@@ -11,6 +11,9 @@ use std::{fmt, time::Duration};
 /// Initial schema; apply once through the host's migration mechanism, never on each receipt.
 pub const SCHEMA: &str = include_str!("../migrations/0001_inbox.sql");
 pub const WORK_SCHEMA: &str = include_str!("../migrations/0002_work.sql");
+pub const REPLAY_SCHEMA: &str = include_str!("../migrations/0003_replay.sql");
+mod replay;
+pub use replay::ReplayRequest;
 mod work;
 pub use work::{Claim, ClaimOptions, Lease, Outcome, State};
 const MAX_PAYLOAD: usize = 8 * 1024 * 1024;
@@ -25,6 +28,8 @@ pub enum Error {
     Durability,
     Integrity,
     LeaseLost,
+    ReplayRejected,
+    ReplayConflict,
 }
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

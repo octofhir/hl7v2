@@ -103,8 +103,8 @@ impl Inbox {
         let id: i64 = row.try_get("id")?;
         let generation: i64 = row.try_get("generation")?;
         let limit = row
-            .try_get::<Option<i32>, _>("attempt_limit")?
-            .unwrap_or(i32::from(options.max_attempts));
+            .try_get::<Option<i64>, _>("attempt_limit")?
+            .unwrap_or(i64::from(options.max_attempts));
         if row.try_get::<&str, _>("state")? == "processing" {
             let ended = sqlx::query(
                 "UPDATE hl7v2.attempts SET ended_at=clock_timestamp(), outcome='expired'
@@ -118,7 +118,7 @@ impl Inbox {
                 return Err(Error::Integrity);
             }
         }
-        if generation >= i64::from(limit) {
+        if generation >= limit {
             sqlx::query("UPDATE hl7v2.inbox SET state='quarantined', quarantine_reason='attempt_limit' WHERE id=$1")
                 .bind(id).execute(&mut *tx).await?;
             tx.commit().await?;
@@ -141,8 +141,8 @@ impl Inbox {
             attempt_limit=$2, available_at=clock_timestamp()+$3*interval '1 millisecond' WHERE id=$1 RETURNING generation")
             .bind(id).bind(limit).bind(ms).fetch_one(&mut *tx).await?;
         sqlx::query(
-            "INSERT INTO hl7v2.attempts(message_id,generation,worker,plan,lease_until,commit_mode)
-            SELECT id,generation,$2,plan,available_at,$3 FROM hl7v2.inbox WHERE id=$1",
+            "INSERT INTO hl7v2.attempts(message_id,generation,worker,plan,lease_until,commit_mode,replay_id)
+            SELECT id,generation,$2,plan,available_at,$3,replay_id FROM hl7v2.inbox WHERE id=$1",
         )
         .bind(id)
         .bind(worker)
@@ -176,7 +176,7 @@ impl Lease {
         &self.payload
     }
 
-    async fn active(&self, tx: &mut Transaction<'_, Postgres>) -> Result<i32, Error> {
+    async fn active(&self, tx: &mut Transaction<'_, Postgres>) -> Result<i64, Error> {
         sqlx::query_scalar(
             "SELECT attempt_limit FROM hl7v2.inbox WHERE id=$1
             AND generation=$2 AND state='processing' AND available_at>clock_timestamp()",
@@ -187,7 +187,7 @@ impl Lease {
         .await?
         .ok_or(Error::LeaseLost)
     }
-    async fn lock(&self) -> Result<(Transaction<'static, Postgres>, i32), Error> {
+    async fn lock(&self) -> Result<(Transaction<'static, Postgres>, i64), Error> {
         let (mut tx, _) = self.inbox.transaction().await?;
         let row: Option<i64> =
             sqlx::query_scalar("SELECT id FROM hl7v2.inbox WHERE id=$1 FOR UPDATE")
@@ -230,8 +230,7 @@ impl Lease {
             _ => 0,
         };
         let (mut tx, limit) = self.lock().await?;
-        let exhausted =
-            matches!(outcome, Outcome::RetryAfter(_)) && self.generation >= i64::from(limit);
+        let exhausted = matches!(outcome, Outcome::RetryAfter(_)) && self.generation >= limit;
         let state = match outcome {
             Outcome::Completed => State::Completed,
             Outcome::RetryAfter(_) if !exhausted => State::RetryScheduled,
