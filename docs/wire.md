@@ -1,6 +1,6 @@
 # ER7 wire core
 
-`octofhir-hl7v2` implements an original, schema-free ER7 parser and editor with no dependencies in the default library. Explicit [numeric/date views](scalars.md), [MLLP framing](mllp.md), [ACKs](ack.md), optional Tokio [async connections](transport.md) and PostgreSQL [custody](inbox.md) are available separately. Schemas, FHIR conversion and clinical processing remain planned. See the [architecture](architecture.md) and [implementation plan](implementation-plan.md).
+`octofhir-hl7v2` implements an original, schema-free ER7 parser and editor with no dependencies in the default library. Explicit [numeric/date views](scalars.md), [caller-supplied schema grouping](schema.md), [MLLP framing](mllp.md), [ACKs](ack.md), optional Tokio [async connections](transport.md) and PostgreSQL [custody](inbox.md) are available separately. Versioned schema catalogs, FHIR conversion and clinical processing remain planned. See the [architecture](architecture.md) and [implementation plan](implementation-plan.md).
 
 ## Representation and access
 

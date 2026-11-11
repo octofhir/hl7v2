@@ -28,5 +28,12 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "schema"
+path = "fuzz_targets/schema.rs"
+test = false
+doc = false
+bench = false
+
 [lints.rust]
 unsafe_code = "forbid"

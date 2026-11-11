@@ -7,7 +7,7 @@
   <a href="#license"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License: MIT OR Apache-2.0"></a>
 </p>
 
-> ER7 parsing/editing, MLLP/ACK, optional async receiver and initial PostgreSQL custody are implemented. Schemas, FHIR maps and clinical processing are planned.
+> ER7 parsing/editing, MLLP/ACK, caller-supplied schema grouping, optional async receiver and PostgreSQL custody are implemented. Versioned standards catalogs, FHIR maps and clinical processing are planned.
 
 ## Available now
 
@@ -24,6 +24,11 @@ The initial supported subset uses distinct ASCII punctuation delimiters, four or
 characters and CR segment terminators; CRLF/LF require an explicit compatibility option. Parsing
 accepts non-UTF-8 bytes but does not transcode character sets or validate an HL7 schema/version.
 See the [wire API and limitations](docs/wire.md).
+
+The dependency-free [schema engine](docs/schema.md) compiles caller-supplied sequence/group rules,
+resolves exact release and event/structure bindings, and exposes nested/repeated group views over
+original segment occurrences. Ambiguous grammars and unsupported envelope/profile variants fail
+explicitly. Approved versioned catalogs, import/overlays and field/datatype validation remain planned.
 
 The [MLLP codec](docs/mllp.md) handles fragmented/coalesced frames, an explicit payload limit,
 incomplete EOF and framing errors. It returns one borrowed payload at a time and retains no output
@@ -76,7 +81,8 @@ No third-party HL7 implementation is used. PostgreSQL tests require an explicitl
 dedicated database and are listed as ignored by the normal test command; see the inbox guide.
 
 [Coverage-guided fuzzing](fuzz/README.md) runs separately with pinned nightly tooling and synthetic
-seeds. It checks ER7 spans/edits/ACKs and MLLP chunking/limits without adding runtime dependencies.
+seeds. It checks ER7 spans/edits/ACKs, MLLP chunking/limits and schema compilation/grouping
+without adding runtime dependencies.
 
 ## Direction
 

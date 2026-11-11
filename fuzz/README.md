@@ -11,11 +11,13 @@ corpus entries and artifacts are ignored by Git.
 rustup toolchain install nightly-2026-09-27 --profile minimal
 cargo install cargo-fuzz --version 0.13.2 --locked
 cargo fetch --locked --manifest-path fuzz/Cargo.toml
-mkdir -p fuzz/corpus/wire fuzz/corpus/mllp
+mkdir -p fuzz/corpus/wire fuzz/corpus/mllp fuzz/corpus/schema
 cp tests/fixtures/*.er7 fuzz/corpus/wire/
 cp tests/fixtures/*.er7 fuzz/corpus/mllp/
+cp tests/fixtures/*.er7 fuzz/corpus/schema/
 cargo +nightly-2026-09-27 fuzz run wire -- -dict=fuzz/wire.dict -seed=701 -max_total_time=60 -max_len=4096 -rss_limit_mb=512 -timeout=5
 cargo +nightly-2026-09-27 fuzz run mllp -- -dict=fuzz/mllp.dict -seed=701 -max_total_time=60 -max_len=4096 -rss_limit_mb=512 -timeout=5
+ASAN_OPTIONS=quarantine_size_mb=64:thread_local_quarantine_size_kb=256 cargo +nightly-2026-09-27 fuzz run schema -- -seed=733 -max_total_time=60 -max_len=16384 -rss_limit_mb=512 -timeout=5
 ```
 
 Requires a C++ compiler supported by libfuzzer-sys. Sanitization, debug assertions and overflow
@@ -48,11 +50,25 @@ reset. For encodable payloads it verifies exact writer/buffer equivalence and re
 three coalesced frames, including an empty frame. Invalid outgoing payloads must write no bytes.
 The shared ER7 seeds are useful payloads; the target constructs valid frames itself.
 
+`schema` compiles generated flat rules/cardinalities and a synthetic nested group grammar. It
+constructs valid instances and checks complete, ordered leaf coverage, borrowed source identity,
+occurrence bounds and error spans under smaller budgets. Arbitrary accepted ER7 inputs also
+exercise resolution and direct shape matching. Definitions are capped at 64 rules, depth 8 and
+4,096 compilation work units; source input is capped at 16 KiB/512 segments/8,192 wire nodes and
+matching at 1,024 occurrences/4,096 steps. No third-party schema data is included.
+
+The schema command retains ASAN instrumentation with a 64 MiB freed-block quarantine and 256 KiB
+thread-local quarantine to fit the 512 MiB process budget. An initial macOS run with the default
+quarantine reached that process limit: its report showed about 238 MiB quarantined and 25 MiB live
+heap, mostly libFuzzer. The emitted empty artifact replayed successfully. This harness setting is
+not a change to library limits or a measurement of its peak memory.
+
 CI runs bounded smoke campaigns; it does not establish complete coverage or prove absence of bugs.
-This harness does not exercise network scheduling, durable storage, schemas or FHIR semantics.
+This harness does not exercise network scheduling, durable storage or FHIR semantics.
+Synthetic schema coverage does not establish version-specific catalog conformance.
 Connection/receiver tests cover their separate concurrency and shutdown contracts.
 
-Local evidence on 2026-11-11, macOS arm64, pinned tools above, default AddressSanitizer:
+Local evidence on 2026-11-11, macOS arm64, pinned tools above, AddressSanitizer (default unless noted):
 
 | Target | Seed | Maximum generated input | Runs | Result |
 |---|---|---|---|---|
@@ -60,6 +76,7 @@ Local evidence on 2026-11-11, macOS arm64, pinned tools above, default AddressSa
 | Wire/edit/ACK, after fix | 703 | 16 KiB | 592,269 in 61 s | No invariant/sanitizer failure |
 | Wire/edit/ACK and scalar views | 709 | 4 KiB | 265,868 in 46 s | No invariant/sanitizer failure |
 | Wire/TS/creation/edit/ACK | 719 | 16 KiB | 195,223 in 61 s | No invariant/sanitizer failure |
+| Schema, 64 MiB quarantine | 733 | 16 KiB | 437,059 in 61 s | No invariant/sanitizer failure |
 
 The wire campaign used the evolving synthetic corpus from an earlier run. These are finite
 campaigns, not performance measurements or complete coverage. An initial wire run found that an

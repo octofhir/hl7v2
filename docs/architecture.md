@@ -135,6 +135,11 @@ The editor needs explicit unset/empty/null/value operations. Retain the immutabl
 
 ## Versioned schemas
 
+Implemented structural subset: the [schema engine](schema.md) compiles caller-supplied sequence/group
+definitions, resolves exact release/event/structure bindings and borrows wire segment occurrences.
+It rejects unsupported profiles/local version variants and ambiguous grammars. Versioned data,
+artifact import/digests, overlays and field/datatype validation below remain design and release gates.
+
 ### Source investigation and selection
 
 The catalog in atomic is credited to Redox. At the inspected commits both repositories have one shared hierarchy of messages, segments, fields, datatypes and event-to-structure mappings, rather than release-indexed catalogs. Redox's `OBX.5` says `varies`; its build script generates JavaScript indexes, not per-version definitions. These illustrate catalog organization and comparison cases, but they do not establish the HL7 release or conformance completeness of each definition. They are not selected for import under D11. See the pinned [Redox catalog](https://github.com/RedoxEngine/redox-hl7-v2/tree/1a4bccfb7ff45627a7398bbe864c1012b371fa6d/schema), [index generator](https://github.com/RedoxEngine/redox-hl7-v2/blob/1a4bccfb7ff45627a7398bbe864c1012b371fa6d/build-schema.js), [dynamic OBX field](https://github.com/RedoxEngine/redox-hl7-v2/blob/1a4bccfb7ff45627a7398bbe864c1012b371fa6d/schema/fields/OBX.5.json) and [atomic credits](https://github.com/atomic-ehr/atomic-hl7v2/blob/9917780613421dd766056f7a04ba2b8cd6f3add3/README.md#credits).

@@ -201,6 +201,15 @@ impl Message {
             index,
         })
     }
+    /// Select a global one-based segment occurrence without scanning segment names.
+    pub fn segment(&self, occurrence: usize) -> Option<Segment<'_>> {
+        let index = occurrence.checked_sub(1)?;
+        self.index.segments.get(index)?;
+        Some(Segment {
+            message: self,
+            index,
+        })
+    }
     pub fn segment_named(&self, id: &[u8; 3], occurrence: usize) -> Option<Segment<'_>> {
         self.segments()
             .filter(|segment| segment.id() == id)

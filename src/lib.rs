@@ -3,4 +3,5 @@ pub mod ack;
 #[cfg(feature = "postgres")]
 pub mod inbox;
 pub mod mllp;
+pub mod schema;
 pub mod wire;
