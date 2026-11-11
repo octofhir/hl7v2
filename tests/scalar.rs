@@ -201,3 +201,82 @@ fn typed_reads_preserve_wire_presence_escapes_positions_and_invalid_source() -> 
     );
     Ok(())
 }
+
+#[test]
+fn timestamps_keep_encoded_precision_and_apply_only_supported_legacy_overrides() -> Result {
+    for (code, precision) in [
+        ("Y", Precision::Year),
+        ("L", Precision::Month),
+        ("D", Precision::Day),
+        ("H", Precision::Hour),
+        ("M", Precision::Minute),
+        ("S", Precision::Second),
+    ] {
+        let message = Message::parse(format!(
+            "MSH|^~\\&|S\rZTS|20240229123456.0100-0000^{code}\r"
+        ))?;
+        let timestamp = message.timestamp(&[2, 1])?;
+        assert_eq!(timestamp.precision(), precision);
+        assert_eq!(timestamp.declared_precision(), Some(precision));
+        assert_eq!(timestamp.precision_presence(), Presence::Value);
+        assert_eq!(timestamp.encoded_time().precision(), Precision::Fraction(4));
+        assert_eq!(
+            timestamp.encoded_time().as_bytes(),
+            b"20240229123456.0100-0000"
+        );
+        assert_eq!(timestamp.encoded_time().offset_minutes(), Some(0));
+        assert_eq!(timestamp.source().raw(), message.value(&[2, 1]).raw());
+    }
+    let message = Message::parse(b"MSH|^~\\&|S\rZTS|2024|2024^|x^202402291234&L|2024~202402^L\r")?;
+    for (field, presence) in [(1, Presence::Missing), (2, Presence::Empty)] {
+        let timestamp = message.timestamp(&[2, field])?;
+        assert_eq!(timestamp.precision(), Precision::Year);
+        assert_eq!(timestamp.precision_presence(), presence);
+        assert_eq!(timestamp.declared_precision(), None);
+    }
+    assert_eq!(
+        message.timestamp(&[2, 3, 1, 2])?.precision(),
+        Precision::Month
+    );
+    assert!(matches!(message.timestamp(&[2, 4]), Err(e) if e.kind == ErrorKind::Composite));
+    assert_eq!(message.timestamp(&[2, 4, 1])?.precision(), Precision::Year);
+    assert_eq!(message.timestamp(&[2, 4, 2])?.precision(), Precision::Month);
+    let custom = Message::parse(b"MSH*$%!?*S\rZTS*20240229!X31!!X32!$!X4C!\r")?;
+    assert_eq!(custom.timestamp(&[2, 1])?.precision(), Precision::Month);
+    assert_eq!(
+        custom.timestamp(&[2, 1])?.encoded_time().as_bytes(),
+        b"2024022912"
+    );
+    Ok(())
+}
+
+#[test]
+fn timestamps_refuse_invented_precision_bad_shapes_and_null_declarations() -> Result {
+    for (value, kind) in [
+        ("2024^H", ErrorKind::Timestamp),
+        ("202402^D", ErrorKind::Timestamp),
+        ("2024^X", ErrorKind::Timestamp),
+        ("2024^\"\"", ErrorKind::Null),
+        ("2024^Y^extra", ErrorKind::Composite),
+        ("2024^Y&extra", ErrorKind::Composite),
+        ("20260229", ErrorKind::DateTime),
+        ("2024^\\Zsite\\", ErrorKind::Escape),
+        ("", ErrorKind::Empty),
+        ("\"\"", ErrorKind::Null),
+        ("^L", ErrorKind::Empty),
+    ] {
+        let message = Message::parse(format!("MSH|^~\\&|S\rZTS|{value}\r"))?;
+        let error = message
+            .timestamp(&[2, 1])
+            .err()
+            .ok_or("invalid TS accepted")?;
+        assert_eq!(error.kind, kind, "{value}");
+        let span = message.value(&[2, 1]).span().ok_or("missing span")?;
+        assert!(span.start <= error.span.start && error.span.end <= span.end);
+        assert_eq!(message.value(&[2, 1]).raw(), Some(value.as_bytes()));
+    }
+    let message = Message::parse(b"MSH|^~\\&|S\rZTS|2024\r")?;
+    assert!(matches!(message.timestamp(&[2, 2]), Err(e) if e.kind == ErrorKind::Missing));
+    assert!(matches!(message.timestamp(&[2, 1, 1, 1, 1]), Err(e) if e.kind == ErrorKind::Path));
+    Ok(())
+}

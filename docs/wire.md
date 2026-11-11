@@ -6,7 +6,7 @@
 
 `Message::parse` checks the byte limit, retains the exact input in `Arc<[u8]>` and builds a flat arena index. Each node contains a source range and a contiguous range of child nodes; there is no allocation per child list. Message clones share the bytes and index. `Message::from_shared` accepts an existing `Arc<[u8]>` without copying it.
 
-`original()` returns unchanged bytes, including unknown/Z-segments, spaces, trailing separators, escape spellings and non-UTF-8 content. Numbers and partial dates are never normalized. `Value::{decimal, date, date_time}` explicitly validate [lexical views](scalars.md) that retain signs, zeros, partial precision and offset presence. They do not select schema types or interpret composite TS precision overrides.
+`original()` returns unchanged bytes, including unknown/Z-segments, spaces, trailing separators, escape spellings and non-UTF-8 content. Numbers and partial dates are never normalized. `Value::{decimal, date, date_time}` explicitly validate [lexical views](scalars.md) that retain signs, zeros, partial precision and offset presence. `Message::timestamp(path)` also applies composite TS precision overrides. These operations do not select schema types automatically.
 
 All paths are one-based. `value(&[segment, field, repetition, component, subcomponent])` accepts two to five coordinates. Segment numbers count every segment in wire order, including MSH. `segment_named(b"OBX", n)` finds the nth occurrence of an ID; its `occurrence()` gives that segment's global number. A field's children are repetitions, then components, then subcomponents. MSH-1/2 are opaque declarations with no children.
 

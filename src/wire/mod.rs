@@ -10,7 +10,7 @@ pub mod scalar;
 
 pub use edit::{Edit, Editor};
 pub(crate) use escape::{append, decode as decode_scalar, encode as encode_scalar};
-pub use scalar::{Date, DateTime, Decimal, Precision};
+pub use scalar::{Date, DateTime, Decimal, Precision, Timestamp};
 use std::{borrow::Cow, fmt, ops::Range, sync::Arc};
 
 pub type Span = Range<usize>;
@@ -28,6 +28,7 @@ pub enum ErrorKind {
     Number,
     Date,
     DateTime,
+    Timestamp,
     Composite,
     Escape,
     InvalidHex,

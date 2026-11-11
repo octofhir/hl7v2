@@ -15,7 +15,7 @@ The `octofhir-hl7v2` Rust package provides an original ER7 parser and editor. It
 has no third-party dependencies. It retains exact source bytes, byte spans, field positions, repetitions and unknown/Z-segments,
 and distinguishes missing, empty, explicit null and populated positions. Scalar escape decoding is
 explicit; unsupported escapes remain inspectable. [Numeric/date views](docs/scalars.md) validate explicit
-decimal, DT and DTM reads while preserving signs, zeros, partial precision and offset presence.
+decimal, DT, DTM and TS reads while preserving signs, zeros, partial precision and offset presence.
 Parser and editor limits bound input, index and output growth.
 
 The initial supported subset uses distinct ASCII punctuation delimiters, four or five MSH-2 encoding

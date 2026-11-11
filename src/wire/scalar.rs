@@ -1,5 +1,5 @@
 //! Explicit lexical views. No arithmetic, timezone inference or schema length validation.
-use super::{Error, ErrorKind, Span, Value};
+use super::{Error, ErrorKind, Message, Presence, Span, Value, valid_path};
 use std::borrow::Cow;
 
 /// Exact decimal spelling; equality and arithmetic are deliberately not supplied.
@@ -226,6 +226,97 @@ impl<'a> DateTime<'a> {
 // Called only for validated ASCII digits of at most four characters.
 fn number(bytes: &[u8]) -> u16 {
     bytes.iter().fold(0, |n, b| n * 10 + u16::from(b - b'0'))
+}
+
+/// TS: encoded DTM plus an optional legacy precision declaration.
+#[derive(Clone)]
+pub struct Timestamp<'a> {
+    source: Value<'a>,
+    time: DateTime<'a>,
+    declared: Option<Precision>,
+    presence: Presence,
+}
+impl<'a> Timestamp<'a> {
+    pub fn source(&self) -> Value<'a> {
+        self.source
+    }
+    /// Populated DTM components; use `precision()` to interpret their declared significance.
+    pub fn encoded_time(&self) -> &DateTime<'a> {
+        &self.time
+    }
+    pub fn precision(&self) -> Precision {
+        self.declared.unwrap_or(self.time.precision())
+    }
+    pub fn declared_precision(&self) -> Option<Precision> {
+        self.declared
+    }
+    pub fn precision_presence(&self) -> Presence {
+        self.presence
+    }
+}
+
+impl Message {
+    /// Read one TS field, repetition or embedded component. Repetitions must be selected explicitly.
+    pub fn timestamp(&self, path: &[usize]) -> Result<Timestamp<'_>, Error> {
+        if !valid_path(path) || path.len() > 4 {
+            return Err(Error::new(ErrorKind::Path, 0..0));
+        }
+        let source = self.value(path);
+        let span = source.span().unwrap_or(0..0);
+        match source.presence() {
+            Presence::Missing => return Err(Error::new(ErrorKind::Missing, span)),
+            Presence::Empty => return Err(Error::new(ErrorKind::Empty, span)),
+            Presence::Null => return Err(Error::new(ErrorKind::Null, span)),
+            Presence::Value => {}
+        }
+        let components = if path.len() == 2 {
+            if source.child_count() != 1 {
+                return Err(Error::new(ErrorKind::Composite, span));
+            }
+            source.child(1)
+        } else {
+            source
+        };
+        if !(1..=2).contains(&components.child_count()) {
+            return Err(Error::new(ErrorKind::Composite, span));
+        }
+        let time = components.child(1).date_time()?;
+        let declaration = components.child(2);
+        let presence = declaration.presence();
+        let declared = match presence {
+            Presence::Missing | Presence::Empty => None,
+            _ => {
+                let bytes = declaration.decode()?;
+                let precision = match bytes.as_ref() {
+                    b"Y" => Precision::Year,
+                    b"L" => Precision::Month,
+                    b"D" => Precision::Day,
+                    b"H" => Precision::Hour,
+                    b"M" => Precision::Minute,
+                    b"S" => Precision::Second,
+                    _ => {
+                        return Err(Error::new(
+                            ErrorKind::Timestamp,
+                            declaration.span().unwrap_or(0..0),
+                        ));
+                    }
+                };
+                if precision > time.precision() {
+                    return Err(Error::new(
+                        ErrorKind::Timestamp,
+                        declaration.span().unwrap_or(0..0),
+                    ));
+                }
+                Some(precision)
+            }
+        };
+        Ok(Timestamp {
+            source,
+            time,
+            declared,
+            presence,
+        })
+    }
 }
 
 impl<'a> Value<'a> {

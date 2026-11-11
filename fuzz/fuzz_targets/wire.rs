@@ -43,12 +43,31 @@ fn check(message: &Message, options: ParseOptions) {
         assert_eq!(segment.raw(), &bytes[segment.span()]);
         for n in 1..=segment.field_count() {
             value(segment.field(n), bytes, segment.span(), 0);
+            let field = [segment.occurrence(), n];
+            timestamp(message, &field);
+            for repetition in 1..=segment.field(n).child_count() {
+                timestamp(message, &[field[0], n, repetition]);
+                for component in 1..=segment.field(n).child(repetition).child_count() {
+                    timestamp(message, &[field[0], n, repetition, component]);
+                }
+            }
         }
     }
     assert_eq!(
         message.value(&[usize::MAX; 5]).presence(),
         Presence::Missing
     );
+}
+
+fn timestamp(message: &Message, path: &[usize]) {
+    if let Ok(value) = message.timestamp(path) {
+        assert_eq!(value.source().raw(), message.value(path).raw());
+        assert!(value.precision() <= value.encoded_time().precision());
+        assert_eq!(
+            value.declared_precision().is_some(),
+            value.precision_presence() == Presence::Value
+        );
+    }
 }
 
 fuzz_target!(|bytes: &[u8]| {
