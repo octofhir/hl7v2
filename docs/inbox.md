@@ -64,7 +64,9 @@ added to evade duplicate detection. Never mix independent sender namespaces unde
 
 The 32-byte `plan` identifies the host's immutable processing manifest: exact schemas, overrides,
 maps, terminology, validation and application policy. Artifact storage/resolution is not implemented
-here. The host must preserve those assets; a digest alone does not make a plan executable. The
+here. The optional [native schema package](schema-packages.md) supplies a content-bound schema
+digest to include in that manifest; it is not itself the whole processing-plan ID.
+The host must preserve those assets; a digest alone does not make a plan executable. The
 first receipt pins its plan. Later configuration changes do not rewrite it; each delivery records
 the newly requested plan separately. Missing historical assets must fail later replay explicitly.
 An interface must admit only plans it can actually process; this module cannot enforce artifact

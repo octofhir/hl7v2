@@ -100,8 +100,10 @@ Field checks use explicit synthetic profiles with dynamic OBX-5 numeric typing. 
 conditional/terminology/FHIR validation, allocation count or durability in these measurements.
 They are not comparisons with other implementations or production throughput guarantees.
 
-No package loader, deterministic artifact digest, overlay compiler or approved versioned schema
-data ships here. The host must bind any cached catalog to its immutable processing assets; a
+The optional [native package API](schema-packages.md) binds compiled structure/field definitions
+and required provenance/scope metadata to a deterministic SHA-256. It can require an exact digest
+at activation; the host must retain the definitions and bind this digest into its processing plan.
+No external package loader, overlay compiler or approved versioned schema data ships here; a
 release label alone is insufficient for durable replay. [Field definitions and checks](validation.md)
 form a separate pass: `Rule::typed_segment` binds a grammar role to an explicit named segment
 profile, `View::segments()` iterates source leaves, and `Occurrence::profile()` exposes that binding.
@@ -109,3 +111,7 @@ profile, `View::segments()` iterates source leaves, and `Occurrence::profile()` 
 profile registration and logical FML models remain separate stages. The acquisition,
 rights/provenance and completeness gates in the [implementation plan](implementation-plan.md)
 remain open. This module establishes a reusable structural engine, not an HL7 conformance claim.
+
+With `--features schema-package`, the schema benchmark also times package compilation and
+fingerprinting at activation. Package hashing is not performed per message. That measurement uses
+declared synthetic source metadata; it does not fetch sources or measure artifact storage.

@@ -119,6 +119,8 @@ fn main() -> Result {
     let catalog = Catalog::compile("TEST", STRUCTURES, BINDINGS, CompileLimits::default())?;
     let fields = FieldSchema::compile(TYPES, PROFILES, CompileLimits::default())?;
     fields.check_catalog(&catalog)?;
+    #[cfg(feature = "schema-package")]
+    package_timing(iterations)?;
     let start = Instant::now();
     for _ in 0..iterations {
         black_box(Catalog::compile(
@@ -134,6 +136,45 @@ fn main() -> Result {
     );
     run(&catalog, &fields, 1, iterations)?;
     run(&catalog, &fields, 1000, (iterations / 1000).max(1))
+}
+#[cfg(feature = "schema-package")]
+fn package_timing(iterations: u32) -> Result {
+    use octofhir_hl7v2::schema::package::{Definitions, Manifest, Package, Source};
+    let sources = [Source {
+        name: "synthetic",
+        location: "urn:octofhir:benchmark",
+        revision: "1",
+        sha256: [0; 32],
+        license: "MIT OR Apache-2.0",
+        notice: "Declared synthetic benchmark evidence",
+    }];
+    let manifest = Manifest {
+        name: "synthetic",
+        release: "TEST",
+        revision: "1",
+        producer: "schema-benchmark@1",
+        scope: "Synthetic structure, event, field and lexical constraints",
+        limitations: "No standard catalog, conditional rules or terminology",
+        sources: &sources,
+    };
+    let start = Instant::now();
+    for _ in 0..iterations {
+        black_box(Package::compile(
+            manifest,
+            Definitions {
+                structures: STRUCTURES,
+                bindings: BINDINGS,
+                datatypes: TYPES,
+                segments: PROFILES,
+            },
+            CompileLimits::default(),
+        )?);
+    }
+    println!(
+        "compile+fingerprint synthetic package: {:.0} ns/package",
+        start.elapsed().as_nanos() as f64 / f64::from(iterations)
+    );
+    Ok(())
 }
 fn run(
     catalog: &Catalog<'_>,

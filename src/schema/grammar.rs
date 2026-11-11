@@ -15,6 +15,32 @@ pub struct StructureSchema<'a> {
     rules: Vec<CompiledRule<'a>>,
 }
 impl StructureSchema<'_> {
+    #[cfg(feature = "schema-package")]
+    pub(super) fn identity(&self, hash: &mut super::package::Identity) {
+        hash.number(self.rules.len());
+        for rule in &self.rules {
+            hash.text(rule.name);
+            hash.occurs(rule.occurs);
+            match rule.segment {
+                Some(id) => {
+                    hash.tag(1);
+                    hash.bytes(&id);
+                    match rule.profile {
+                        Some(profile) => {
+                            hash.tag(1);
+                            hash.text(profile);
+                        }
+                        None => hash.tag(0),
+                    }
+                }
+                None => {
+                    hash.tag(0);
+                    hash.number(rule.children.start);
+                    hash.number(rule.children.end);
+                }
+            }
+        }
+    }
     pub(super) fn profiles(&self) -> impl Iterator<Item = ([u8; 3], Option<&str>)> {
         self.rules
             .iter()

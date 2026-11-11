@@ -4,6 +4,8 @@ This unpublished development harness uses cargo-fuzz/libFuzzer and AddressSaniti
 workspace keeps fuzzing dependencies and nightly Rust out of the library and its lockfile. Seeds
 are our synthetic wire fixtures; no upstream HL7 implementation or corpus is used. Generated
 corpus entries and artifacts are ignored by Git.
+The harness enables the optional `schema-package` feature to check package identities; SHA-256
+remains an optional library dependency and the default wire library still has none.
 
 ## Run from the repository root
 
@@ -65,6 +67,8 @@ null/empty/escaped values, numeric/date/TS lexemes and nested components. It che
 issue spans/presence, report caps, charged byte/step limits and successful typed-read parity.
 Accepted raw wire seeds also exercise individual segment checks. The grammar remains synthetic;
 there is no copied standards catalog or terminology validation.
+The target compiles native packages, reconstructs exact fingerprints, checks expected-digest
+activation and mutates manifest text. Manifest locations remain data and trigger no file/network I/O.
 
 The schema and validation commands retain ASAN instrumentation with a 64 MiB freed-block quarantine and 256 KiB
 thread-local quarantine to fit the 512 MiB process budget. An initial macOS run with the default
@@ -88,6 +92,7 @@ Local evidence on 2026-11-11, macOS arm64, pinned tools above, AddressSanitizer 
 | Schema, 64 MiB quarantine | 733 | 16 KiB | 437,059 in 61 s | No invariant/sanitizer failure |
 | Field validation, 64 MiB quarantine | 743 | 16 KiB | 587,861 in 61 s | No invariant/sanitizer failure |
 | Wire after terminal-truncation checks | 757 | 16 KiB | 139,401 in 46 s | No invariant/sanitizer failure |
+| Native packages and field checks, 64 MiB quarantine | 773 | 16 KiB | 319,540 in 61 s | No invariant/sanitizer failure |
 
 The wire campaign used the evolving synthetic corpus from an earlier run. These are finite
 campaigns, not performance measurements or complete coverage. An initial wire run found that an

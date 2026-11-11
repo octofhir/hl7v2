@@ -33,6 +33,11 @@ units and datatype lexemes, including OBX-5 types selected by the same OBX's OBX
 source coordinates and have work/byte/report budgets. Approved versioned catalogs, import/overlays,
 conditional rules and terminology validation remain planned.
 
+The optional `schema-package` feature wraps native definitions in an immutable
+[schema package](docs/schema-packages.md) with required source/scope/limitations metadata and a
+deterministic SHA-256. Activation can require an exact historical digest. The host retains the
+definitions and includes their digest in its processing plan; file import and asset storage remain planned.
+
 The [MLLP codec](docs/mllp.md) handles fragmented/coalesced frames, an explicit payload limit,
 incomplete EOF and framing errors. It returns one borrowed payload at a time and retains no output
 queue. Encoding supports a framed buffer or a standard writer.
@@ -81,7 +86,8 @@ The package has not been published to crates.io. The wire benchmark separates lo
 lexical, prepared-edit serialization and complete edit/reindex timings. The schema benchmark
 separates grouping, field checks and complete parse/group/check timings over synthetic profiles.
 Neither includes transport, durability, terminology or FHIR processing.
-Tokio, SQLx and SHA-256 are optional library infrastructure; development tests also use Tokio.
+Tokio, SQLx and SHA-256 are optional library infrastructure; `schema-package` enables SHA-256
+without enabling transport or PostgreSQL. Development tests also use Tokio.
 No third-party HL7 implementation is used. PostgreSQL tests require an explicitly configured
 dedicated database and are listed as ignored by the normal test command; see the inbox guide.
 

@@ -118,6 +118,37 @@ pub struct FieldSchema<'a> {
 }
 
 impl<'a> FieldSchema<'a> {
+    #[cfg(feature = "schema-package")]
+    pub(super) fn identity(&self, hash: &mut super::package::Identity) {
+        hash.number(self.types.len());
+        for datatype in &self.types {
+            hash.text(datatype.name);
+            match &datatype.kind {
+                Kind::Primitive(primitive) => {
+                    hash.tag(0);
+                    hash.tag(match primitive {
+                        Primitive::Bytes => 0,
+                        Primitive::Ascii => 1,
+                        Primitive::Utf8 => 2,
+                        Primitive::Number => 3,
+                        Primitive::Date => 4,
+                        Primitive::DateTime => 5,
+                    });
+                }
+                Kind::Timestamp => hash.tag(1),
+                Kind::Composite(slots) => {
+                    hash.tag(2);
+                    identity_slots(slots, hash);
+                }
+            }
+        }
+        hash.number(self.segments.len());
+        for segment in &self.segments {
+            hash.text(segment.name);
+            hash.bytes(&segment.id);
+            identity_slots(&segment.fields, hash);
+        }
+    }
     pub fn compile(
         types: &'a [Datatype<'a>],
         segments: &'a [SegmentDefinition<'a>],
@@ -313,6 +344,41 @@ impl<'a> FieldSchema<'a> {
                         },
                     )
                 })
+            }
+        }
+    }
+}
+#[cfg(feature = "schema-package")]
+fn identity_slots(slots: &[Slot], hash: &mut super::package::Identity) {
+    hash.number(slots.len());
+    for slot in slots {
+        hash.number(slot.position);
+        hash.occurs(slot.occurs);
+        hash.tag(u8::from(slot.nullable));
+        match slot.length {
+            None => hash.tag(0),
+            Some(length) => {
+                let (tag, maximum) = match length {
+                    Length::WireBytes(n) => (1, n),
+                    Length::ScalarBytes(n) => (2, n),
+                    Length::Utf8Characters(n) => (3, n),
+                };
+                hash.tag(tag);
+                hash.number(maximum);
+            }
+        }
+        match &slot.datatype {
+            Ref::Fixed(index) => {
+                hash.tag(0);
+                hash.number(*index);
+            }
+            Ref::ByField { selector, allowed } => {
+                hash.tag(1);
+                hash.number(*selector);
+                hash.number(allowed.len());
+                for index in allowed {
+                    hash.number(*index);
+                }
             }
         }
     }

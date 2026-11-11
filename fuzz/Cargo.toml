@@ -10,7 +10,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-octofhir-hl7v2 = { path = "..", default-features = false }
+octofhir-hl7v2 = { path = "..", default-features = false, features = ["schema-package"] }
 
 [workspace]
 

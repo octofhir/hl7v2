@@ -1,6 +1,8 @@
 #![doc = include_str!("../../docs/schema.md")]
 pub mod fields;
 mod grammar;
+#[cfg(feature = "schema-package")]
+pub mod package;
 
 use crate::wire::{self, Message, Presence, Span};
 pub use grammar::{Occurrence, StructureSchema, View};

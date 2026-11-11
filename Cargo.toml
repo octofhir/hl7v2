@@ -17,6 +17,7 @@ name = "octofhir_hl7v2"
 [features]
 default = []
 transport = ["dep:tokio"]
+schema-package = ["dep:sha2"]
 postgres = ["dep:sqlx", "dep:sha2"]
 
 [dependencies]

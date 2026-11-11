@@ -2,11 +2,12 @@
 use libfuzzer_sys::fuzz_target;
 use octofhir_hl7v2::{
     schema::{
-        Binding, Catalog, CompileLimits, MatchLimits, Occurs, Rule, Structure,
+        Binding, CompileLimits, MatchLimits, Occurs, Rule, Structure,
         fields::{
             Datatype, DatatypeKind as K, Element as E, FieldSchema, Length, Primitive as P, Report,
             SegmentDefinition as S, ValidationLimits,
         },
+        package::{Definitions, Manifest, Package, Source},
     },
     wire::{Edit, Message, ParseOptions, Presence},
 };
@@ -133,13 +134,60 @@ fuzz_target!(|bytes: &[u8]| {
         max_depth: 8,
         max_work: 4096,
     };
-    let schema = FieldSchema::compile(TYPES, SEGMENTS, compile);
-    let catalog = Catalog::compile("TEST", STRUCTURES, BINDINGS, compile);
-    assert!(schema.is_ok() && catalog.is_ok());
-    let (Ok(schema), Ok(catalog)) = (schema, catalog) else {
+    let sources = [Source {
+        name: "synthetic",
+        location: "urn:octofhir:fuzz",
+        revision: "1",
+        sha256: [42; 32],
+        license: "MIT OR Apache-2.0",
+        notice: "Declared synthetic evidence",
+    }];
+    let manifest = Manifest {
+        name: "fuzz",
+        release: "TEST",
+        revision: "1",
+        producer: "validation-fuzzer@1",
+        scope: "Synthetic grouping, fields and dynamic lexical types",
+        limitations: "No standard catalog, conditions or terminology",
+        sources: &sources,
+    };
+    let definitions = || Definitions {
+        structures: STRUCTURES,
+        bindings: BINDINGS,
+        datatypes: TYPES,
+        segments: SEGMENTS,
+    };
+    let package = Package::compile(manifest, definitions(), compile);
+    assert!(package.is_ok());
+    let Ok(package) = package else {
         return;
     };
-    assert!(schema.check_catalog(&catalog).is_ok());
+    let digest = package.digest();
+    let reconstructed = Package::compile(manifest, definitions(), compile);
+    assert!(reconstructed.is_ok());
+    if let Ok(reconstructed) = reconstructed {
+        assert!(reconstructed.require_digest(digest).is_ok());
+    }
+    // Metadata is interpreted only as manifest text, never as a path to read or fetch.
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        let changed = Package::compile(
+            Manifest {
+                scope: text,
+                ..manifest
+            },
+            definitions(),
+            compile,
+        );
+        if let Ok(changed) = changed {
+            assert_eq!(changed.digest() == digest, text == manifest.scope);
+            assert_eq!(
+                changed.require_digest(digest).is_ok(),
+                text == manifest.scope
+            );
+        }
+    }
+    let schema = package.fields();
+    let catalog = package.catalog();
     let cases = [
         ("NM", "+0001.2300"),
         ("DT", "202402"),
