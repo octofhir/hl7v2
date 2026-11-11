@@ -313,6 +313,11 @@ fn generated_inputs_and_custom_delimiter_edits_are_bounded() -> Result {
         let revised = editor.finish()?;
         assert_eq!(revised.value(&[2, 1]).decode()?.as_ref(), value);
         assert!(revised.diagnostics().is_empty());
+        let mut editor = message.edit();
+        editor.set_or_create(&[2, 3, 2, 3, 2], Edit::Value(value.clone()))?;
+        let revised = editor.finish()?;
+        assert_eq!(revised.value(&[2, 3, 2, 3, 2]).decode()?.as_ref(), value);
+        assert_eq!(revised.value(&[2, 2]).presence(), Presence::Empty);
     }
     Ok(())
 }

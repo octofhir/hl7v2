@@ -4,7 +4,7 @@ use octofhir_hl7v2::{
     ack::{self, Code, Mode, Reply},
     wire::{Date, DateTime, Decimal, DiagnosticKind, Edit, Message, ParseOptions, Presence, Value},
 };
-use std::ops::Range;
+use std::{collections::BTreeMap, ops::Range};
 
 fn value(value: Value<'_>, bytes: &[u8], parent: Range<usize>, depth: usize) {
     assert!(depth <= 3);
@@ -104,6 +104,56 @@ fuzz_target!(|bytes: &[u8]| {
     check(&message, options);
     assert_eq!(message.edit().serialize().as_deref(), Ok(bytes));
     let replacement = &bytes[..bytes.len().min(128)];
+    let mut creation = message.edit();
+    if creation
+        .set_or_create(&[1, 24, 2, 2, 2], Edit::Value(replacement.to_vec()))
+        .is_ok()
+        && let Ok(output) = creation.serialize()
+    {
+        let revised = Message::parse_with_options(output, options);
+        assert!(
+            revised.is_ok(),
+            "created revision cannot be parsed: {revised:?}"
+        );
+        if let Ok(revised) = revised {
+            assert!(
+                matches!(revised.value(&[1, 24, 2, 2, 2]).decode(), Ok(value) if value.as_ref() == replacement)
+            );
+        }
+    }
+    if let Some(header) = message.segments().next() {
+        let mut creation = message.edit();
+        let mut expected = BTreeMap::new();
+        for parameters in bytes.as_chunks::<4>().0.iter().take(8) {
+            let path = [
+                1,
+                header.field_count() + 1 + usize::from(parameters[0] % 4),
+                1 + usize::from(parameters[1] % 4),
+                1 + usize::from(parameters[2] % 4),
+                1 + usize::from(parameters[3] % 4),
+            ];
+            if creation
+                .set_or_create(&path, Edit::Value(replacement.to_vec()))
+                .is_ok()
+            {
+                expected.insert(path, replacement);
+            }
+        }
+        if let Ok(output) = creation.serialize() {
+            let revised = Message::parse_with_options(output, options);
+            assert!(
+                revised.is_ok(),
+                "batch creation cannot be parsed: {revised:?}"
+            );
+            if let Ok(revised) = revised {
+                for (path, bytes) in expected {
+                    assert!(
+                        matches!(revised.value(&path).decode(), Ok(value) if value.as_ref() == bytes)
+                    );
+                }
+            }
+        }
+    }
     let mut scalar = message.edit();
     if scalar
         .set(&[1, 3], Edit::Value(replacement.to_vec()))
@@ -135,7 +185,11 @@ fuzz_target!(|bytes: &[u8]| {
             2 => Edit::Null,
             _ => Edit::Unset,
         };
-        let _ = editor.set(&path, edit);
+        if parameters[0] & 4 == 0 {
+            let _ = editor.set(&path, edit);
+        } else {
+            let _ = editor.set_or_create(&path, edit);
+        }
     }
     if let Ok(output) = editor.serialize() {
         let revised = Message::parse_with_options(&output, options);

@@ -17,6 +17,8 @@ and distinguishes missing, empty, explicit null and populated positions. Scalar 
 explicit; unsupported escapes remain inspectable. [Numeric/date views](docs/scalars.md) validate explicit
 decimal, DT, DTM and TS reads while preserving signs, zeros, partial precision and offset presence.
 Parser and editor limits bound input, index and output growth.
+Sparse [editing](docs/editing.md) can explicitly create missing positions within existing segments,
+preserving coordinates by filling intervening siblings with empty values.
 
 The initial supported subset uses distinct ASCII punctuation delimiters, four or five MSH-2 encoding
 characters and CR segment terminators; CRLF/LF require an explicit compatibility option. Parsing

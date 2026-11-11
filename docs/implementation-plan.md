@@ -9,7 +9,7 @@ Build the smallest complete supported interface before broadening the catalog or
 | Stage | Status and evidence |
 |---|---|
 | 0 — Interface contract | Schema source/provenance, representative sender contract and application/durability decisions remain open. Independent wire implementation proceeds as allowed below. |
-| 1 — Wire core | Initial parser with a flat arena index, source spans, four-state presence, explicit escape decoding and sparse byte-range editing implemented. No third-party dependencies. Synthetic binary-safe corpus, inspector, deterministic robustness checks and a local timing benchmark are present. Construction of missing positions is deferred. See [actual supported subset](wire.md). |
+| 1 — Wire core | Initial parser with a flat arena index, source spans, four-state presence, explicit escape decoding and sparse byte-range editing implemented. Explicit creation of missing positions inside existing segments fills empty siblings with checked byte/node growth. Segment construction remains deferred. No third-party dependencies. Synthetic binary-safe corpus, inspector, deterministic robustness checks and a local timing benchmark are present. See [actual supported subset](wire.md). |
 | 1 — Scalar interpretation | Explicit decimal, DT, DTM and composite TS views preserve original spelling, sign/scale, partial precision, fraction digits and offset presence. TS applies supported legacy precision reductions and rejects invented precision. Ordinary reads borrow wire bytes; escaped reads own decoded scalars. Calendar checks and error spans are covered, and ACK generation reuses DTM validation. Schema length checks and FML numeric parity remain open. See [scalar contract](scalars.md). |
 | 1 — Robustness | Separate coverage-guided wire/edit/ACK and MLLP targets, synthetic seeds, dictionaries, pinned tooling and bounded sanitizer smoke campaigns are available. A found ACK escape-copy defect is retained as a regression. See [fuzzing](../fuzz/README.md). |
 | 1 — Remaining verification | Sustained fuzz campaigns, broader sender corpus, allocation/peak-memory benchmarks and expansion beyond the documented delimiter/encoding subset are not complete. Stage 1 is not declared fully closed. |
@@ -27,6 +27,11 @@ Five scalar scenarios add 100,000-digit decimals, explicit signs/zeros, malforme
 Gregorian century boundaries, partial dates, fractional precision/offsets, typed error spans,
 presence, escaped custom delimiters, TS precision declarations, explicit repetition selection and
 embedded TS components. Fuzzing also exercises standalone lexical input and composite TS paths.
+
+Three editing scenarios cover order-independent creation at every depth, shared insertion offsets,
+tail deletion conflicts, cancellation, null parents, overflow/byte/node budgets, custom separators
+and retained CRLF/LF/missing terminators. The shuffled-delimiter corpus also creates nested positions.
+Fuzzing checks single/batched creation values after reparse, not only syntactic acceptance.
 
 Three additional framing scenarios cover exhaustive two-part splits, one-byte/coalesced input, EOF at every byte, size/format errors, poison/reset and short/failed writes. Four ACK scenarios cover envelopes, conditions, error/correlation rejection, timestamps, custom separators and UTF-8. Four optional transport scenarios cover real persistent TCP, fragmented/coalesced streams, absolute deadlines on virtual time, cancellation and duplicate ACKs. Documentation examples are compiled as doctests; local examples run without network I/O. These checks do not establish durable receipt or full gateway behavior.
 
