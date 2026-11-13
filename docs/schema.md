@@ -1,8 +1,8 @@
 # Caller-supplied schema views
 
 Schema compilation, exact release/structure resolution and segment grouping are separate from
-generic wire parsing. This module contains no bundled HL7 catalog or import format. Definitions
-are caller-supplied Rust values; their version label does not certify provenance or conformance.
+generic wire parsing. This module contains no bundled HL7 catalog. Definitions
+are caller-supplied Rust values (optionally persisted with the native package format); their version label does not certify provenance or conformance.
 
 ```rust
 use octofhir_hl7v2::{schema::{Binding, Catalog, CompileLimits, MatchLimits, Occurs, Rule, Structure}, wire::Message};
@@ -103,11 +103,13 @@ They are not comparisons with other implementations or production throughput gua
 The optional [native package API](schema-packages.md) binds compiled structure/field definitions
 and required provenance/scope metadata to a deterministic SHA-256. It can require an exact digest
 at activation; the host must retain the definitions and bind this digest into its processing plan.
-No external package loader, overlay compiler or approved versioned schema data ships here; a
+The optional bounded native file loader returns an owned reusable package. No standards-artifact
+importer, overlay compiler or approved versioned schema data ships here; a
 release label alone is insufficient for durable replay. [Field definitions and checks](validation.md)
 form a separate pass: `Rule::typed_segment` binds a grammar role to an explicit named segment
 profile, `View::segments()` iterates source leaves, and `Occurrence::profile()` exposes that binding.
-`FieldSchema::check_catalog` verifies all bindings before activation. Conditional/terminology checks,
+`FieldSchema::check_catalog` verifies all bindings before activation. Closed caller-defined code
+sets are available as scalar datatypes. Conditional/external terminology checks,
 profile registration and logical FML models remain separate stages. The acquisition,
 rights/provenance and completeness gates in the [implementation plan](implementation-plan.md)
 remain open. This module establishes a reusable structural engine, not an HL7 conformance claim.

@@ -1,8 +1,13 @@
 # HL7 v2 architecture
 
-Status: architectural baseline, updated 2026-11-11. Implementation has been authorized. Initial [wire parsing/editing](wire.md), explicit [decimal/date views](scalars.md), [MLLP framing](mllp.md), [v2.5.1 ACKs](ack.md), optional [async receiver](transport.md), [PostgreSQL custody inbox](inbox.md), [durable work-state APIs](work.md) and [same-plan quarantine replay](replay.md) are available with documented subsets and limits. Process-wide byte accounting, worker execution, new-plan reprocessing and clinical application remain unimplemented. The broader components below remain a design unless explicitly marked implemented. The accompanying [implementation plan](implementation-plan.md) tracks progress and acceptance gates.
+Status: architectural baseline, updated 2026-11-13. Implementation has been authorized. Initial [wire parsing/editing](wire.md), explicit [decimal/date views](scalars.md), [MLLP framing](mllp.md), [v2.5.1 ACKs](ack.md), optional [async receiver](transport.md), [PostgreSQL custody inbox](inbox.md), [durable work-state APIs](work.md) and [same-plan quarantine replay](replay.md) are available with documented subsets and limits. Process-wide byte accounting, worker execution, new-plan reprocessing and clinical application remain unimplemented. The broader components below remain a design unless explicitly marked implemented. The accompanying [implementation plan](implementation-plan.md) tracks progress and acceptance gates.
 
 The toolkit owns the path from HL7 v2 bytes to a durable processing outcome. Its message core, schemas, MLLP transport and receipt processing remain usable without FHIR. Optional FHIR conversion uses OctoFHIR FML and ConceptMap; a separate application layer reconciles converted events with existing clinical data.
+
+The implemented schema subset includes caller-authored same-segment conditional presence rules:
+raw presence or exact scalar equality can require/forbid an optional field. Native package V3
+persists them; legacy V1/V2 pins and exports remain exact. Broader conditional queries and standard
+rule coverage remain open. See [validation](validation.md#conditional-presence).
 
 ## Decisions and scope
 
@@ -123,7 +128,7 @@ Separate structural parsing from character decoding. MSH-18 and related characte
 
 ### Typed values and serialization
 
-Numbers retain their lexeme, sign, scale and exponent spelling where allowed. Typed numeric operations use an exact decimal/integer representation, never an obligatory `f64` conversion. DT/DTM/TS values retain precision, fractional seconds, offset presence and any declared degree of precision. A year or month is not an invented complete date; a local timestamp without an offset is not automatically UTC. Invalid lexemes remain available with errors.
+Numbers retain their lexeme, sign, scale and exponent spelling where allowed. Typed numeric operations use an exact decimal/integer representation, never an obligatory `f64` conversion. The implemented Decimal view exposes explicit numeric comparison, zero recognition and exact precision/scale representability queries with no mutation or rounding; schema lexical validation remains a separate pass. DT/DTM/TS values retain precision, fractional seconds, offset presence and any declared degree of precision. A year or month is not an invented complete date; a local timestamp without an offset is not automatically UTC. Invalid lexemes remain available with errors.
 
 Expose separate operations:
 
@@ -142,8 +147,10 @@ It rejects unsupported envelope profiles/local version variants and ambiguous gr
 datatypes, including same-segment selectors for OBX-5. It reads the indexed original without a JSON
 projection and bounds steps, cumulative bytes and retained reports. The optional
 [native package API](schema-packages.md) binds these compiled definitions and provenance metadata
-to an exact SHA-256 and rejects a mismatched historical pin. Versioned standard data, external
-artifact import/storage, overlays, conditional rules and terminology remain design and release gates.
+to an exact SHA-256 and rejects a mismatched historical pin. Bounded native binary export/loading
+restores owned compiled plans with the same digest. Closed caller-defined code sets add exact UTF-8 membership checks with bounded source reports.
+Versioned standard data, standards-artifact import/storage, overlays, broader conditional rules and external
+terminology remain design and release gates.
 
 ### Source investigation and selection
 
@@ -168,12 +175,14 @@ No production schema supplier is approved by this document. The decision is to o
 
 The implemented native-package subset compiles caller-owned Rust definitions and checks every
 structural/field-profile link before hashing. It requires bounded source evidence, producer/revision,
-scope and limitations metadata. Identity V1 sorts unordered tables and length-prefixes all values;
+scope and limitations metadata. Versioned identities sort unordered tables and length-prefix all values;
 grammar order remains significant. Compile once at activation; hashing adds no per-message pass.
 Source evidence is declared, not fetched or authenticated. Scope/limitations are prose, not a
 machine-verified completeness matrix. A schema digest is one input to the host's complete processing
-plan; it does not replace that plan or preserve definitions by itself. External import, approved
-standard packages and the richer contract below remain future gates.
+plan; it does not replace that plan or preserve definitions by itself. Bounded native V1/V2/V3 files
+persist these definitions and load owned plans through the same compilers with a required expected
+digest. Legacy definitions retain exact V1 identity/exports; closed code sets select V2. Standards-artifact import, approved standard packages and the richer contract
+below remain future gates.
 
 An immutable package contains:
 

@@ -159,11 +159,16 @@ impl Default for MatchLimits {
     }
 }
 
+struct EventBinding<'a> {
+    message: Cow<'a, str>,
+    event: Cow<'a, str>,
+    structure: Cow<'a, str>,
+}
 /// Compiled caller-supplied definitions for one exact release; no bundled standards catalog.
 pub struct Catalog<'a> {
-    version: &'a str,
+    version: Cow<'a, str>,
     structures: Vec<StructureSchema<'a>>,
-    bindings: Vec<&'a Binding<'a>>,
+    bindings: Vec<EventBinding<'a>>,
 }
 impl<'a> Catalog<'a> {
     pub fn compile(
@@ -207,7 +212,7 @@ impl<'a> Catalog<'a> {
             .map(|s| grammar::compile(s, limits.max_depth, &mut rules, &mut work))
             .collect::<Result<Vec<_>, _>>()?;
         let mut catalog = Self {
-            version,
+            version: version.into(),
             structures,
             bindings: Vec::with_capacity(bindings.len()),
         };
@@ -218,20 +223,45 @@ impl<'a> Catalog<'a> {
             {
                 return Err(Error::new(ErrorKind::Definition));
             }
-            catalog.bindings.push(binding);
+            catalog.bindings.push(EventBinding {
+                message: binding.message.into(),
+                event: binding.event.into(),
+                structure: binding.structure.into(),
+            });
         }
-        catalog
-            .bindings
-            .sort_unstable_by_key(|b| (b.message, b.event, b.structure));
+        catalog.bindings.sort_unstable_by(|a, b| {
+            (&a.message, &a.event, &a.structure).cmp(&(&b.message, &b.event, &b.structure))
+        });
         if catalog.bindings.windows(2).any(|p| {
-            (p[0].message, p[0].event, p[0].structure) == (p[1].message, p[1].event, p[1].structure)
+            (&p[0].message, &p[0].event, &p[0].structure)
+                == (&p[1].message, &p[1].event, &p[1].structure)
         }) {
             return Err(Error::new(ErrorKind::Definition));
         }
         Ok(catalog)
     }
+    #[cfg(feature = "schema-package")]
+    fn into_owned(self) -> Catalog<'static> {
+        Catalog {
+            version: Cow::Owned(self.version.into_owned()),
+            structures: self
+                .structures
+                .into_iter()
+                .map(StructureSchema::into_owned)
+                .collect(),
+            bindings: self
+                .bindings
+                .into_iter()
+                .map(|b| EventBinding {
+                    message: Cow::Owned(b.message.into_owned()),
+                    event: Cow::Owned(b.event.into_owned()),
+                    structure: Cow::Owned(b.structure.into_owned()),
+                })
+                .collect(),
+        }
+    }
     pub fn version(&self) -> &str {
-        self.version
+        &self.version
     }
     fn structure(&self, name: &str) -> Option<&StructureSchema<'a>> {
         self.structures
@@ -295,7 +325,7 @@ impl<'a> Catalog<'a> {
                 _ => return Err(Error::at(message, &path, ErrorKind::AmbiguousEvent)),
             };
             return self
-                .structure(binding.structure)
+                .structure(&binding.structure)
                 .ok_or_else(|| Error::new(ErrorKind::Definition));
         }
         let name = token(message, &path, 64)?;

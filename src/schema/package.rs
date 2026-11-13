@@ -1,13 +1,16 @@
 #![doc = include_str!("../../docs/schema-packages.md")]
 use super::{
     Binding, Catalog, CompileLimits, Occurs, Structure,
-    fields::{Datatype, FieldSchema, SegmentDefinition},
+    fields::{Condition, Datatype, FieldSchema, SegmentDefinition},
 };
+pub(super) mod file;
+pub use file::{FILE_VERSION, FileError, LoadLimits, OwnedManifest, OwnedPackage, OwnedSource};
+
 use sha2::{Digest, Sha256};
 use std::fmt;
 
-/// Identity encoding and validation-semantics revision, independent of HL7 release/package revision.
-pub const FORMAT_VERSION: u64 = 1;
+/// Latest supported identity/semantics revision. Inspect each package with `format_version()`.
+pub const FORMAT_VERSION: u64 = 3;
 pub type Fingerprint = [u8; 32];
 
 /// Declared source evidence. The host verifies and retains the referenced artifact itself.
@@ -29,7 +32,7 @@ pub struct Manifest<'a> {
     pub producer: &'a str,
     /// Explicit coverage of structures, fields, datatypes and event associations.
     pub scope: &'a str,
-    /// Unsupported/unknown constraints, including conditional and terminology checks.
+    /// Unsupported/unknown constraints, including broader conditional and terminology checks.
     pub limitations: &'a str,
     pub sources: &'a [Source<'a>],
 }
@@ -74,11 +77,20 @@ pub struct Package<'a> {
     catalog: Catalog<'a>,
     fields: FieldSchema<'a>,
     digest: Fingerprint,
+    format_version: u64,
 }
 impl<'a> Package<'a> {
     pub fn compile(
         manifest: Manifest<'a>,
         definitions: Definitions<'a>,
+        limits: CompileLimits,
+    ) -> Result<Self, Error> {
+        Self::compile_with_conditions(manifest, definitions, &[], limits)
+    }
+    pub fn compile_with_conditions(
+        manifest: Manifest<'a>,
+        definitions: Definitions<'a>,
+        conditions: &'a [Condition<'a>],
         limits: CompileLimits,
     ) -> Result<Self, Error> {
         let sources = check_manifest(&manifest)?;
@@ -88,11 +100,17 @@ impl<'a> Package<'a> {
             definitions.bindings,
             limits,
         )?;
-        let fields = FieldSchema::compile(definitions.datatypes, definitions.segments, limits)?;
+        let fields = FieldSchema::compile_with_conditions(
+            definitions.datatypes,
+            definitions.segments,
+            conditions,
+            limits,
+        )?;
         fields.check_catalog(&catalog)?;
         let mut hash = Identity(Sha256::new());
         hash.bytes(b"octofhir-hl7v2-schema-package");
-        hash.0.update(FORMAT_VERSION.to_be_bytes());
+        let format_version = fields.format_version();
+        hash.0.update(format_version.to_be_bytes());
         for value in [
             manifest.name,
             manifest.release,
@@ -122,7 +140,7 @@ impl<'a> Package<'a> {
         }
         hash.number(catalog.bindings.len());
         for binding in &catalog.bindings {
-            for value in [binding.message, binding.event, binding.structure] {
+            for value in [&binding.message, &binding.event, &binding.structure] {
                 hash.text(value);
             }
         }
@@ -132,6 +150,7 @@ impl<'a> Package<'a> {
             catalog,
             fields,
             digest: hash.0.finalize().into(),
+            format_version,
         })
     }
     pub fn manifest(&self) -> &Manifest<'a> {
@@ -142,6 +161,10 @@ impl<'a> Package<'a> {
     }
     pub fn fields(&self) -> &FieldSchema<'a> {
         &self.fields
+    }
+    /// Required identity/semantics encoding: V1 legacy, V2 closed codes, V3 conditional presence.
+    pub fn format_version(&self) -> u64 {
+        self.format_version
     }
     pub fn digest(&self) -> Fingerprint {
         self.digest
@@ -203,7 +226,7 @@ fn check_manifest<'a>(manifest: &Manifest<'a>) -> Result<Vec<&'a Source<'a>>, Er
     Ok(sources)
 }
 
-/// V1 encoding: length-prefixed bytes, big-endian u64 counts, explicit option/variant tags.
+/// Shared identity primitives: length-prefixed bytes, big-endian u64 counts and explicit tags.
 pub(super) struct Identity(Sha256);
 impl Identity {
     pub(super) fn tag(&mut self, tag: u8) {

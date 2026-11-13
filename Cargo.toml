@@ -41,3 +41,8 @@ unsafe_code = "forbid"
 
 [lints.clippy]
 all = "warn"
+
+[[bin]]
+name = "hl7v2-validate"
+path = "src/bin/validate.rs"
+required-features = ["schema-package"]

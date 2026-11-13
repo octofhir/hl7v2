@@ -4,14 +4,19 @@ use octofhir_hl7v2::{
     schema::{
         Binding, CompileLimits, MatchLimits, Occurs, Rule, Structure,
         fields::{
-            Datatype, DatatypeKind as K, Element as E, FieldSchema, Length, Primitive as P, Report,
-            SegmentDefinition as S, ValidationLimits,
+            Condition, Datatype, DatatypeKind as K, Element as E, FieldSchema, Length, Predicate,
+            Primitive as P, Report, Requirement, SegmentDefinition as S, ValidationLimits,
         },
         package::{Definitions, Manifest, Package, Source},
     },
     wire::{Edit, Message, ParseOptions, Presence},
 };
+const CODE_VALUES: &[&str] = &["F", "P", "C", "é", "A|B", "\"\""];
 const TYPES: &[Datatype<'_>] = &[
+    Datatype {
+        name: "STATUS",
+        kind: K::Codes(CODE_VALUES),
+    },
     Datatype {
         name: "B",
         kind: K::Primitive(P::Bytes),
@@ -72,7 +77,46 @@ const OBX: &[E<'_>] = &[
         ..E::by_field(5, 2, ALLOWED, Occurs::MANY)
     },
 ];
+const CONDITIONS: &[Condition<'_>] = &[
+    Condition {
+        profile: "Conditional",
+        target: 2,
+        when: Predicate::Equals {
+            field: 1,
+            value: "F",
+        },
+        requirement: Requirement::Required,
+    },
+    Condition {
+        profile: "Conditional",
+        target: 2,
+        when: Predicate::Equals {
+            field: 1,
+            value: "P",
+        },
+        requirement: Requirement::Forbidden,
+    },
+];
 const SEGMENTS: &[S<'_>] = &[
+    S {
+        name: "Conditional",
+        id: *b"Z98",
+        fields: &[
+            E::required(1, "STATUS"),
+            E {
+                nullable: true,
+                ..E::optional(2, "B")
+            },
+        ],
+    },
+    S {
+        name: "Status",
+        id: *b"Z99",
+        fields: &[E {
+            nullable: true,
+            ..E::required(1, "STATUS")
+        }],
+    },
     S {
         name: "Header",
         id: *b"MSH",
@@ -148,7 +192,7 @@ fuzz_target!(|bytes: &[u8]| {
         revision: "1",
         producer: "validation-fuzzer@1",
         scope: "Synthetic grouping, fields and dynamic lexical types",
-        limitations: "No standard catalog, conditions or terminology",
+        limitations: "No standard catalog or external terminology",
         sources: &sources,
     };
     let definitions = || Definitions {
@@ -157,25 +201,27 @@ fuzz_target!(|bytes: &[u8]| {
         datatypes: TYPES,
         segments: SEGMENTS,
     };
-    let package = Package::compile(manifest, definitions(), compile);
+    let package = Package::compile_with_conditions(manifest, definitions(), CONDITIONS, compile);
     assert!(package.is_ok());
     let Ok(package) = package else {
         return;
     };
     let digest = package.digest();
-    let reconstructed = Package::compile(manifest, definitions(), compile);
+    let reconstructed =
+        Package::compile_with_conditions(manifest, definitions(), CONDITIONS, compile);
     assert!(reconstructed.is_ok());
     if let Ok(reconstructed) = reconstructed {
         assert!(reconstructed.require_digest(digest).is_ok());
     }
     // Metadata is interpreted only as manifest text, never as a path to read or fetch.
     if let Ok(text) = std::str::from_utf8(bytes) {
-        let changed = Package::compile(
+        let changed = Package::compile_with_conditions(
             Manifest {
                 scope: text,
                 ..manifest
             },
             definitions(),
+            CONDITIONS,
             compile,
         );
         if let Ok(changed) = changed {
@@ -218,6 +264,83 @@ fuzz_target!(|bytes: &[u8]| {
         max_bytes: 65_536,
         max_issues: 16,
     };
+    let status_source = Message::parse([HEADER, b"Z99|F\r"].concat());
+    assert!(status_source.is_ok());
+    if let Ok(status_source) = status_source {
+        let payload = &bytes[..bytes.len().min(512)];
+        let (edit, valid) = match parameter >> 4 & 3 {
+            0 => (
+                Edit::Value(payload.to_vec()),
+                CODE_VALUES.iter().any(|s| s.as_bytes() == payload),
+            ),
+            1 => (Edit::Empty, false),
+            2 => (Edit::Null, true),
+            _ => (
+                Edit::Value(
+                    CODE_VALUES[usize::from(parameter) % CODE_VALUES.len()]
+                        .as_bytes()
+                        .to_vec(),
+                ),
+                true,
+            ),
+        };
+        let mut editor = status_source.edit();
+        assert!(editor.set(&[2, 1], edit).is_ok());
+        let edited = editor.finish();
+        assert!(edited.is_ok());
+        if let Ok(edited) = edited {
+            let report = schema.validate_segment(&edited, "Status", 2, limits);
+            check(&report, &edited, limits);
+            assert_eq!(report.is_valid(), valid);
+            let bounded = ValidationLimits {
+                max_steps: usize::from(parameter),
+                max_bytes: bytes.len() % 128,
+                max_issues: bytes.len() % 4,
+            };
+            check(
+                &schema.validate_segment(&edited, "Status", 2, bounded),
+                &edited,
+                bounded,
+            );
+        }
+    }
+    let source = Message::parse([HEADER, b"Z98|F\r"].concat());
+    assert!(source.is_ok());
+    if let Ok(source) = source {
+        let code = if parameter & 1 == 0 { "F" } else { "P" };
+        let target = match parameter >> 1 & 3 {
+            0 => Edit::Empty,
+            1 => Edit::Null,
+            _ => Edit::Value(bytes[..bytes.len().min(512)].to_vec()),
+        };
+        let mut edit = source.edit();
+        assert!(
+            edit.set(&[2, 1], Edit::Value(code.as_bytes().to_vec()))
+                .is_ok()
+        );
+        assert!(edit.set_or_create(&[2, 2], target).is_ok());
+        let edited = edit.finish();
+        assert!(edited.is_ok());
+        if let Ok(edited) = edited {
+            let populated = matches!(
+                edited.value(&[2, 2]).presence(),
+                Presence::Null | Presence::Value
+            );
+            let report = schema.validate_segment(&edited, "Conditional", 2, limits);
+            check(&report, &edited, limits);
+            assert_eq!(report.is_valid(), populated == (code == "F"));
+            let bounded = ValidationLimits {
+                max_steps: usize::from(parameter),
+                max_bytes: bytes.len() % 128,
+                max_issues: bytes.len() % 4,
+            };
+            check(
+                &schema.validate_segment(&edited, "Conditional", 2, bounded),
+                &edited,
+                bounded,
+            );
+        }
+    }
     if usize::from(parameter) % cases.len() < 6 {
         assert!(
             schema

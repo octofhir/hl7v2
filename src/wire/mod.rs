@@ -8,7 +8,7 @@ mod parse;
 #[doc = include_str!("../../docs/scalars.md")]
 pub mod scalar;
 
-pub use edit::{Edit, Editor};
+pub use edit::{Edit, Editor, SegmentBuilder};
 pub(crate) use escape::{append, decode as decode_scalar, encode as encode_scalar};
 pub use scalar::{Date, DateTime, Decimal, Precision, Timestamp};
 use std::{borrow::Cow, fmt, ops::Range, sync::Arc};
@@ -160,6 +160,28 @@ impl fmt::Debug for Message {
 }
 
 impl Message {
+    /// Create a CR-terminated MSH containing only its separator declarations.
+    /// Populate remaining header fields and segments with the sparse editor before schema validation.
+    pub fn create(delimiters: Delimiters, options: ParseOptions) -> Result<Self, Error> {
+        let mut bytes = Vec::with_capacity(10);
+        bytes.extend_from_slice(b"MSH");
+        bytes.push(delimiters.field);
+        bytes.extend_from_slice(&delimiters.encoding);
+        if let Some(truncation) = delimiters.truncation {
+            bytes.push(truncation);
+        }
+        bytes.push(b'\r');
+        let message = Self::from_shared(bytes.into(), options)?;
+        // A fifth encoding character equal to the field separator would otherwise be reinterpreted
+        // as an empty MSH-3. Reject any declaration that did not round-trip exactly.
+        if message.delimiters() != delimiters {
+            return Err(Error::new(
+                ErrorKind::Delimiters,
+                3..message.original().len() - 1,
+            ));
+        }
+        Ok(message)
+    }
     pub fn parse(bytes: impl AsRef<[u8]>) -> Result<Self, Error> {
         Self::parse_with_options(bytes, ParseOptions::default())
     }
@@ -230,6 +252,10 @@ impl Message {
             message: self,
             node,
         }
+    }
+    /// Prepare a non-MSH segment using this revision's delimiters and resource limits.
+    pub fn segment_builder(&self, id: [u8; 3]) -> Result<SegmentBuilder<'_>, Error> {
+        SegmentBuilder::new(self, id)
     }
     pub fn edit(&self) -> Editor<'_> {
         Editor::new(self)

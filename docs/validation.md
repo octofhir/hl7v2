@@ -43,7 +43,7 @@ omitted issues. It does not establish general version conformance, terminology v
 ## Definitions and activation
 
 `DatatypeKind` supports primitive decoded bytes, ASCII, UTF-8, exact decimal syntax, DT, DTM,
-composites and legacy TS. Names do not imply standard rules: registering `NM` does not add a
+composites, legacy TS and closed UTF-8 code sets. Names do not imply standard rules: registering `NM` does not add a
 16-character limit unless the caller declares it. Formatted/local/charset escapes unsupported by
 the wire decoder produce issues; this engine does not claim complete FT/TX or charset support.
 
@@ -88,9 +88,114 @@ every version's standard length rules. No character-set transcoding or grapheme 
 normalizes a code or substitutes ST. Unknown/disallowed types, absent/empty/null selectors and
 malformed/repeated selectors produce separate source diagnostics. Selectors are resolved once per
 field at its first populated repetition; an optional empty field or allowed null needs no datatype.
-Conditional OBX-2 requirements based on OBX-11 are not implemented by this generic mechanism.
+Conditional requirements are separate from dynamic datatype resolution; the limited API below can add same-segment presence constraints.
 The same-segment OBX-2/5 association was checked against the v2.5.1 [observation chapter](https://hl7.eu/HL7v2x/v251/std251/ch07.html),
 sections 7.4.2.2 and 7.4.2.5. Tests use original synthetic subsets, not a copied standards catalog.
+
+## Closed code sets
+
+`DatatypeKind::Codes(&[&str])` defines a closed set of exact decoded UTF-8 values. Compilation
+sorts and retains the entries once; validation uses binary search. These types can be fields,
+components/subcomponents or same-segment dynamic selectors, and support explicit scalar length
+units. Matching is byte-exact after one scalar decode: no trim, case folding, Unicode normalization,
+numeric coercion or fallback occurs. A code containing a separator must be escaped on the wire.
+
+```rust
+use octofhir_hl7v2::{
+    schema::{CompileLimits, fields::{Datatype, DatatypeKind, Element, FieldSchema,
+        SegmentDefinition, ValidationLimits}},
+    wire::Message,
+};
+let types = [Datatype { name: "STATUS", kind: DatatypeKind::Codes(&["F", "P", "C"]) }];
+let profiles = [SegmentDefinition { name: "Local", id: *b"Z99",
+    fields: &[Element::required(1, "STATUS")] }];
+let schema = FieldSchema::compile(&types, &profiles, CompileLimits::default())?;
+let source = Message::parse(b"MSH|^~\\&\rZ99|F\r")?;
+assert!(schema.validate_segment(&source, "Local", 2, ValidationLimits::default()).is_valid());
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Sets must be nonempty, with unique nonempty entries, at most 4,096 UTF-8 bytes per entry and no
+characters accepted by Rust's `char::is_control`. Spaces are retained and can be explicit codes.
+Entries consume the compile rule budget; entry counts and cumulative code bytes consume compile
+work before validation/sorting. Together with the entry-size cap these bound compilation/sorting
+and retained metadata. Code order does not affect compiled identity. Duplicate entries fail rather
+than being silently deduplicated. No published standard tables are bundled.
+
+`IssueKind::Code` reports a populated decoded value outside its set, with the original span/path
+and no value text. Invalid UTF-8 reports `Encoding`; malformed/unsupported escapes and possible
+terminal truncation markers preserve the existing wire errors. Presence and cardinality policies
+run first: required missing/empty values fail, nullable explicit null short-circuits membership,
+and escaped literal quote bytes are ordinary values that need an explicit matching entry. Every
+populated repetition is checked independently.
+
+Each code-search probe consumes a step and charges twice the shorter compared byte length before
+reading the two prefixes. These comparison bytes join the existing cumulative value/selector
+byte budget. Exhausting either budget makes the report incomplete; omitted code issues also
+prevent validation success. Definitions and lookup plans are cached across messages.
+
+These are caller-authored finite constraints, not a terminology service: code-system/version
+resolution, coded-pair correlation, subsumption, translations, standard table acquisition and
+conditional terminology remain separate work. Record the set's scope/provenance in package metadata.
+[Native packages](schema-packages.md) use V2 for code sets while retaining exact V1 identities for
+legacy definitions; default field validation still needs no dependencies.
+
+## Conditional presence
+
+`FieldSchema::compile_with_conditions` adds caller-authored `Condition` definitions to named
+segment profiles. `Package::compile_with_conditions` includes the same rules in persisted identity.
+Each rule observes one declared field in the current source segment and requires or forbids a
+different declared optional field. Existing cardinality, datatype, nullability and length checks
+always apply. There are no writes, evaluation-order effects or iterative resolution.
+
+```rust
+use octofhir_hl7v2::{
+    schema::{CompileLimits, fields::{Condition, Datatype, DatatypeKind, Element,
+        FieldSchema, Predicate, Primitive, Requirement, SegmentDefinition, ValidationLimits}},
+    wire::Message,
+};
+let types = [Datatype { name: "ID", kind: DatatypeKind::Primitive(Primitive::Ascii) }];
+let profiles = [SegmentDefinition { name: "Local", id: *b"Z99",
+    fields: &[Element::required(1, "ID"), Element::optional(2, "ID")] }];
+let conditions = [Condition { profile: "Local", target: 2,
+    when: Predicate::Equals { field: 1, value: "F" }, requirement: Requirement::Required }];
+let schema = FieldSchema::compile_with_conditions(&types, &profiles, &conditions, CompileLimits::default())?;
+let source = Message::parse(b"MSH|^~\\&\rZ99|F\r")?;
+let report = schema.validate_segment(&source, "Local", 2, ValidationLimits::default());
+assert!(!report.is_valid());
+assert_eq!(&report.issues[0].path[..2], &[2, 2]);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+`Predicate::Is` compares the field's raw top-level `Missing`, `Empty`, `Null` or `Value` state,
+including on composite/repeating fields. `Predicate::Equals` compares one decoded scalar with an
+exact UTF-8 literal. Missing, empty and explicit null never equal a literal; escaped quote bytes
+remain data. No trim, numeric coercion, case folding or Unicode normalization occurs. Equality
+selectors must be statically typed, non-repeating primitive/code fields. Literals must satisfy that
+datatype, be nonempty/control-free and at most 4,096 UTF-8 bytes. Composite, TS and dynamic equality
+selectors are unsupported and rejected at activation.
+
+An active `Required` rule rejects missing/empty targets and every empty physical repetition.
+Explicit null satisfies it only when the target's existing policy permits null. `Forbidden` rejects
+populated values and explicit null, allowing absent fields and empty positional padding. Targets
+must have static minimum zero; a required action cannot target static maximum zero. Unknown
+profiles/positions, self references, duplicate premises and opposite actions with identical premises
+fail compilation. Other rules are additive: overlapping different premises can make a message
+invalid; activation does not solve arbitrary logical contradictions.
+
+Rules consume compile rule/work budgets; literal bytes also consume work. Runtime probes consume
+steps, raw equality-selector bytes are charged before decoding, and comparisons charge twice the
+shorter byte length. Equality decoding is capped at 20,480 raw bytes (five times the literal cap,
+allowing escaped bytes). A malformed/repeated/composite or oversized equality selector produces
+`ConditionSelector { target }`; decoder failures preserve wire issues. Such selectors never silently
+pass validation. Active target failures produce `Conditional { selector, requirement }` at the
+target's original path/span/presence. Report caps and exhaustion retain the same fail-closed policy.
+Plans and owned literal metadata are compiled once and reused across messages.
+
+This subset adds no expression language, cross-segment/group queries, code-system lookup,
+conditional datatype overrides or standard rule catalog. The synthetic example defines a local
+policy and makes no claim about normative HL7 conditions. [Package V3](schema-packages.md) persists
+these rules while unchanged V1/V2 definitions keep their historical pins and bytes.
 
 ## Reports and bounds
 
@@ -104,7 +209,7 @@ empty padding is retained without inventing an unsupported value.
 `ValidationLimits` defaults to 1,000,000 work steps, 32 MiB cumulative raw value/selector bytes
 visited, and 1,024 retained issues. `Report::steps` and `Report::bytes` expose charged work.
 Nested scopes may charge the same bytes again. Raw lengths are
-charged before decoding; selector decoding is additionally capped at 320 raw bytes. Metadata and
+charged before decoding; dynamic datatype selector decoding is additionally capped at 320 raw bytes. Metadata and
 repetition probes consume steps, including empty slots. These are work/allocation bounds, not a
 wall-clock timeout or total process-memory measurement.
 
@@ -112,5 +217,5 @@ After the issue cap, validation continues and increments `omitted`. Work/byte ex
 `Limit`, sets `complete=false` and stops. Neither a zero issue cap nor an incomplete check can
 produce `is_valid()=true`. Compile failures are separate from runtime reports. `validate_segment`
 checks one profile only; callers needing envelope/structure checks must also use `Catalog::group`.
-Terminology, conditional rules, approved release packages/overlays, FML loss reporting and R4
+External terminology, broader conditional rules, approved release packages/overlays, FML loss reporting and R4
 validation remain separate stages. Original source bytes/indexes are never mutated or projected to JSON.

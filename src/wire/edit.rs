@@ -1,5 +1,15 @@
 use super::{Error, ErrorKind, Message, Presence, Span, escape, valid_path};
-use std::{borrow::Cow, collections::BTreeMap};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+mod segment;
+pub use segment::SegmentBuilder;
+struct Inserted {
+    bytes: Vec<u8>,
+    nodes: usize,
+}
 
 /// Values are unescaped scalar bytes. Null is never inferred from a supplied value.
 pub enum Edit {
@@ -21,12 +31,15 @@ enum Kind {
 }
 type Group<'a> = Vec<(&'a [usize], &'a Patch)>;
 
-/// Sparse replacements and explicit creation of positions within existing segments.
+/// Sparse positional edits, non-MSH segment insertion and whole-segment removal.
 #[doc = include_str!("../../docs/editing.md")]
 pub struct Editor<'a> {
     message: &'a Message,
     patches: BTreeMap<Vec<usize>, Patch>,
     bytes: usize,
+    insertions: BTreeMap<usize, Vec<Inserted>>,
+    removals: BTreeSet<usize>,
+    inserted: usize,
 }
 impl<'a> Editor<'a> {
     pub(super) fn new(message: &'a Message) -> Self {
@@ -34,7 +47,65 @@ impl<'a> Editor<'a> {
             message,
             patches: BTreeMap::new(),
             bytes: 0,
+            insertions: BTreeMap::new(),
+            removals: BTreeSet::new(),
+            inserted: 0,
         }
+    }
+    /// Insert before an original one-based occurrence; N+1 appends. Same-anchor calls retain order.
+    pub fn insert_segment(
+        &mut self,
+        before: usize,
+        segment: SegmentBuilder<'_>,
+    ) -> Result<&mut Self, Error> {
+        self.check_escapes()?;
+        if before < 2 || before > self.message.index.segments.len() + 1 {
+            return Err(Error::new(ErrorKind::Path, 0..0));
+        }
+        if !Arc::ptr_eq(&self.message.index, &segment.message.index) {
+            return Err(Error::new(ErrorKind::EditConflict, 0..0));
+        }
+        if self.inserted >= self.message.options.max_segments {
+            return Err(Error::new(ErrorKind::Limit, 0..0));
+        }
+        let (bytes, nodes) = segment.encode()?;
+        if bytes.len() > self.message.options.max_bytes.saturating_sub(self.bytes) {
+            return Err(Error::new(ErrorKind::Limit, 0..0));
+        }
+        self.bytes += bytes.len();
+        self.inserted += 1;
+        self.insertions
+            .entry(before)
+            .or_default()
+            .push(Inserted { bytes, nodes });
+        Ok(self)
+    }
+    /// Remove an original segment and its own terminator. MSH is protected; repeated removal is idempotent.
+    pub fn remove_segment(&mut self, occurrence: usize) -> Result<&mut Self, Error> {
+        self.check_escapes()?;
+        if occurrence < 2 {
+            return Err(Error::new(ErrorKind::Path, 0..0));
+        }
+        let segment = self
+            .message
+            .segment(occurrence)
+            .ok_or_else(|| Error::new(ErrorKind::Missing, 0..0))?;
+        if self
+            .patches
+            .range(vec![occurrence]..)
+            .next()
+            .is_some_and(|(p, _)| p[0] == occurrence)
+        {
+            return Err(Error::new(ErrorKind::EditConflict, segment.span()));
+        }
+        self.removals.insert(occurrence);
+        Ok(self)
+    }
+    fn check_escapes(&self) -> Result<(), Error> {
+        if let Some(span) = &self.message.index.unterminated {
+            return Err(Error::new(ErrorKind::Escape, span.clone()));
+        }
+        Ok(())
     }
     pub fn set(&mut self, path: &[usize], edit: Edit) -> Result<&mut Self, Error> {
         self.replace(path, edit, false)
@@ -44,13 +115,17 @@ impl<'a> Editor<'a> {
         self.replace(path, edit, true)
     }
     fn replace(&mut self, path: &[usize], edit: Edit, create: bool) -> Result<&mut Self, Error> {
-        if let Some(span) = &self.message.index.unterminated {
-            return Err(Error::new(ErrorKind::Escape, span.clone()));
-        }
+        self.check_escapes()?;
         if !valid_path(path) || (path[0] == 1 && path[1] <= 2) {
             return Err(Error::new(ErrorKind::Path, 0..0));
         }
         let value = self.message.value(path);
+        if self.removals.contains(&path[0]) {
+            return Err(Error::new(
+                ErrorKind::EditConflict,
+                value.span().unwrap_or(0..0),
+            ));
+        }
         if value.presence() == Presence::Missing {
             if matches!(edit, Edit::Unset) {
                 // Cancelling an exact pending creation never removes source siblings.
@@ -180,6 +255,15 @@ impl<'a> Editor<'a> {
         Err(Error::new(ErrorKind::Path, 0..0))
     }
     pub fn serialize(&self) -> Result<Vec<u8>, Error> {
+        if self.inserted
+            > self
+                .message
+                .options
+                .max_segments
+                .saturating_sub(self.message.index.segments.len() - self.removals.len())
+        {
+            return Err(Error::new(ErrorKind::Limit, 0..0));
+        }
         let mut patches = Vec::new();
         let mut groups: BTreeMap<&[usize], Group<'_>> = BTreeMap::new();
         for (path, patch) in &self.patches {
@@ -201,12 +285,56 @@ impl<'a> Editor<'a> {
             .options
             .max_nodes
             .saturating_sub(self.message.node_count());
+        for inserted in self.insertions.values().flatten() {
+            nodes = nodes
+                .checked_sub(inserted.nodes)
+                .ok_or_else(|| Error::new(ErrorKind::Limit, 0..0))?;
+        }
         let mut separators = self.message.options.max_bytes - self.bytes;
         for (parent, group) in groups {
             if let Some(&(first, patch)) = group.first() {
-                let bytes = self.render(parent, &group, &mut nodes, &mut separators)?;
+                let bytes = render(
+                    parent,
+                    &group,
+                    self.count(parent),
+                    self.message,
+                    &mut nodes,
+                    &mut separators,
+                )?;
                 patches.push((patch.span.clone(), Cow::Owned(bytes), first));
             }
+        }
+        // Anchor paths sort after any tail field creation on an unterminated original final segment,
+        // and zero-length insertion spans sort before deletion of the target segment.
+        let anchors: Vec<_> = self.insertions.keys().map(|&n| [n]).collect();
+        for ((&before, inserted), anchor) in self.insertions.iter().zip(&anchors) {
+            let offset = self
+                .message
+                .index
+                .segments
+                .get(before - 1)
+                .map_or(self.message.bytes.len(), |s| s.span.start);
+            let mut bytes = Vec::new();
+            if before == self.message.index.segments.len() + 1
+                && !self.removals.contains(&(before - 1))
+                && self
+                    .message
+                    .index
+                    .segments
+                    .last()
+                    .is_some_and(|s| s.end == s.span.end)
+            {
+                escape::append(&mut bytes, b"\r", self.message.options.max_bytes)?;
+            }
+            for segment in inserted {
+                escape::append(&mut bytes, &segment.bytes, self.message.options.max_bytes)?;
+            }
+            patches.push((offset..offset, Cow::Owned(bytes), anchor.as_slice()));
+        }
+        let removed: Vec<_> = self.removals.iter().map(|&n| [n]).collect();
+        for path in &removed {
+            let s = &self.message.index.segments[path[0] - 1];
+            patches.push((s.span.start..s.end, Cow::Borrowed(&[]), path.as_slice()));
         }
         patches.sort_unstable_by(|a, b| (a.0.start, a.0.end, a.2).cmp(&(b.0.start, b.0.end, b.2)));
         let mut output = Vec::new();
@@ -223,50 +351,52 @@ impl<'a> Editor<'a> {
         escape::append(&mut output, &self.message.bytes[cursor..], max)?;
         Ok(output)
     }
-    // Sorted sparse paths share implicit first children; only divergent sibling tails need separators.
-    fn render(
-        &self,
-        parent: &[usize],
-        group: &Group<'_>,
-        nodes: &mut usize,
-        budget: &mut usize,
-    ) -> Result<Vec<u8>, Error> {
-        let mut output = Vec::new();
-        let mut previous = parent;
-        let delimiters = self.message.delimiters().separators();
-        for &(path, patch) in group {
-            let depth = path
-                .iter()
-                .zip(previous)
-                .take_while(|(a, b)| a == b)
-                .count();
-            let before = if previous.len() == parent.len() {
-                self.count(parent)
-            } else {
-                *previous
-                    .get(depth)
-                    .ok_or_else(|| Error::new(ErrorKind::EditConflict, patch.span.clone()))?
-            };
-            for (level, &number) in path.iter().enumerate().skip(depth) {
-                let count = number
-                    .checked_sub(if level == depth { before } else { 1 })
-                    .ok_or_else(|| Error::new(ErrorKind::EditConflict, patch.span.clone()))?;
-                let added = count
-                    .checked_mul(5 - level)
-                    .ok_or_else(|| Error::new(ErrorKind::Limit, patch.span.clone()))?;
-                if added > *nodes || count > *budget {
-                    return Err(Error::new(ErrorKind::Limit, patch.span.clone()));
-                }
-                *nodes -= added;
-                *budget -= count;
-                output.resize(output.len() + count, delimiters[level - 1]);
-            }
-            escape::append(&mut output, &patch.bytes, self.message.options.max_bytes)?;
-            previous = path;
-        }
-        Ok(output)
-    }
     pub fn finish(self) -> Result<Message, Error> {
         Message::from_shared(self.serialize()?.into(), self.message.options)
     }
+}
+
+// Sorted sparse paths share implicit first children; only divergent sibling tails need separators.
+fn render(
+    parent: &[usize],
+    group: &Group<'_>,
+    first_count: usize,
+    message: &Message,
+    nodes: &mut usize,
+    budget: &mut usize,
+) -> Result<Vec<u8>, Error> {
+    let mut output = Vec::new();
+    let mut previous = parent;
+    let delimiters = message.delimiters().separators();
+    for &(path, patch) in group {
+        let depth = path
+            .iter()
+            .zip(previous)
+            .take_while(|(a, b)| a == b)
+            .count();
+        let before = if previous.len() == parent.len() {
+            first_count
+        } else {
+            *previous
+                .get(depth)
+                .ok_or_else(|| Error::new(ErrorKind::EditConflict, patch.span.clone()))?
+        };
+        for (level, &number) in path.iter().enumerate().skip(depth) {
+            let count = number
+                .checked_sub(if level == depth { before } else { 1 })
+                .ok_or_else(|| Error::new(ErrorKind::EditConflict, patch.span.clone()))?;
+            let added = count
+                .checked_mul(5 - level)
+                .ok_or_else(|| Error::new(ErrorKind::Limit, patch.span.clone()))?;
+            if added > *nodes || count > *budget {
+                return Err(Error::new(ErrorKind::Limit, patch.span.clone()));
+            }
+            *nodes -= added;
+            *budget -= count;
+            output.resize(output.len() + count, delimiters[level - 1]);
+        }
+        escape::append(&mut output, &patch.bytes, message.options.max_bytes)?;
+        previous = path;
+    }
+    Ok(output)
 }

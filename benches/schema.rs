@@ -3,8 +3,8 @@ use octofhir_hl7v2::{
     schema::{
         Binding, Catalog, CompileLimits, MatchLimits, Occurs, Rule, Structure,
         fields::{
-            Datatype, DatatypeKind as K, Element as E, FieldSchema, Primitive as P,
-            SegmentDefinition as S, ValidationLimits,
+            Condition, Datatype, DatatypeKind as K, Element as E, FieldSchema, Predicate,
+            Primitive as P, Requirement, SegmentDefinition as S, ValidationLimits,
         },
     },
     wire::Message,
@@ -116,6 +116,8 @@ fn main() -> Result {
         .and_then(|text| text.parse::<u32>().ok())
         .unwrap_or(10_000)
         .max(1);
+    code_timing(iterations)?;
+    condition_timing(iterations)?;
     let catalog = Catalog::compile("TEST", STRUCTURES, BINDINGS, CompileLimits::default())?;
     let fields = FieldSchema::compile(TYPES, PROFILES, CompileLimits::default())?;
     fields.check_catalog(&catalog)?;
@@ -136,6 +138,84 @@ fn main() -> Result {
     );
     run(&catalog, &fields, 1, iterations)?;
     run(&catalog, &fields, 1000, (iterations / 1000).max(1))
+}
+fn code_timing(iterations: u32) -> Result {
+    let codes: Vec<_> = (0..256).map(|n| format!("CODE{n:03}")).collect();
+    let refs: Vec<_> = codes.iter().map(String::as_str).collect();
+    let types = [Datatype {
+        name: "CODE",
+        kind: K::Codes(&refs),
+    }];
+    let fields = [E::required(1, "CODE")];
+    let profiles = [S {
+        name: "Value",
+        id: *b"ZZZ",
+        fields: &fields,
+    }];
+    let schema = FieldSchema::compile(&types, &profiles, CompileLimits::default())?;
+    let message = Message::parse(b"MSH|^~\\&\rZZZ|CODE127\r")?;
+    assert!(
+        schema
+            .validate_segment(&message, "Value", 2, ValidationLimits::default())
+            .is_valid()
+    );
+    let start = Instant::now();
+    for _ in 0..iterations {
+        black_box(schema.validate_segment(
+            black_box(&message),
+            "Value",
+            2,
+            ValidationLimits::default(),
+        ));
+    }
+    println!(
+        "closed code-set checks (256 codes): {:.0} ns/message (cached indexed source, no grouping)",
+        start.elapsed().as_nanos() as f64 / f64::from(iterations)
+    );
+    Ok(())
+}
+fn condition_timing(iterations: u32) -> Result {
+    let types = [Datatype {
+        name: "ID",
+        kind: K::Primitive(P::Ascii),
+    }];
+    let fields = [E::required(1, "ID"), E::optional(2, "ID")];
+    let profiles = [S {
+        name: "Local",
+        id: *b"Z99",
+        fields: &fields,
+    }];
+    let rules = [Condition {
+        profile: "Local",
+        target: 2,
+        when: Predicate::Equals {
+            field: 1,
+            value: "F",
+        },
+        requirement: Requirement::Required,
+    }];
+    let schema =
+        FieldSchema::compile_with_conditions(&types, &profiles, &rules, CompileLimits::default())?;
+    let message = Message::parse(b"MSH|^~\\&\rZ99|F|present\r")?;
+    assert!(
+        schema
+            .validate_segment(&message, "Local", 2, ValidationLimits::default())
+            .is_valid()
+    );
+    let start = Instant::now();
+    for _ in 0..iterations {
+        black_box(schema.validate_segment(
+            black_box(&message),
+            "Local",
+            2,
+            ValidationLimits::default(),
+        ));
+    }
+    println!(
+        "conditional profile checks: {:.0} ns/message (cached indexed source, no grouping)",
+        start.elapsed().as_nanos() as f64 / f64::from(iterations)
+    );
+    Ok(())
 }
 #[cfg(feature = "schema-package")]
 fn package_timing(iterations: u32) -> Result {

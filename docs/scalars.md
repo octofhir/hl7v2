@@ -32,8 +32,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 - `Decimal` accepts an optional leading sign, digits and at most one decimal point, with at least
   one digit overall. `.5` and `5.` are accepted. Its digit slices retain zeros; `sign()` retains
   an explicit plus or minus, including negative zero. Exponents, whitespace, grouping separators,
-  NaN/infinity and comparators are refused. No fixed coefficient width, arithmetic or numerical
-  equality is imposed. The wire message limit bounds ordinary input; standalone callers bound
+  NaN/infinity and comparators are refused. There is no fixed coefficient width or arithmetic API.
+  Numeric queries below are explicit. The wire message limit bounds ordinary input; standalone callers bound
   their own slices. A successful lexical parse does not enforce the v2.5.1 NM length of 16.
 - `Date` accepts 4, 6 or 8 digits: year, month and day precision. Supplied components must form a
   valid Gregorian date in years 0001–9999. Missing components remain `None`.
@@ -48,6 +48,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 These rules were checked against the v2.5.1 [datatype chapter](https://hl7.eu/HL7v2x/v251/std251/ch02a.html),
 sections 2.A.1.21, 2.A.1.22, 2.A.1.47 and 2.A.1.77. This is lexical interpretation, not full schema conformance.
 TM, arithmetic, FHIR emission and exact precision through FML remain separate work.
+
+## Exact decimal queries
+
+`Decimal::numeric_cmp(&other)` returns `std::cmp::Ordering` for the mathematical values. Leading
+integer zeros, trailing fractional zeros and the sign of zero do not change numeric order.
+`is_zero()` recognizes all valid zero spellings, including `-0.`, `+.0` and `000.000`.
+`as_bytes()`, `sign()`, digit slices and lexical `scale()` remain unchanged. Numeric comparison is
+explicit; no `Eq`/`Ord` traits or lexical normalization are added. Wire identity continues to use
+original bytes.
+
+`fits_precision_scale(precision, scale)` checks exact representability in a fixed-decimal target
+with `precision` total digit positions and `scale` fractional places. It requires positive precision
+and `scale <= precision`; invalid target configurations return false. At most `precision - scale`
+integer digits may remain after ignoring leading zeros. Every fractional digit beyond the target
+scale must be zero. A shorter fraction may be extended with virtual zeros. A target with equal
+precision and scale can hold magnitudes below one, including zero.
+
+```rust
+use octofhir_hl7v2::wire::Decimal;
+use std::cmp::Ordering;
+
+let source = b"+0001.2300";
+let value = Decimal::parse(source)?;
+assert_eq!(value.numeric_cmp(&Decimal::parse(b"1.23")?), Ordering::Equal);
+assert!(value.fits_precision_scale(3, 2));
+assert!(!value.fits_precision_scale(3, 1));
+assert!(Decimal::parse(b"-0.000")?.is_zero());
+assert_eq!(value.scale(), 4);
+assert_eq!(value.as_bytes(), source);
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+These queries use linear scans over actual digit slices and constant auxiliary space. They allocate
+no padded buffers, use no floating point and perform no rounding or rescaling. Even large target
+parameters do not cause work proportional to the requested scale. Standalone callers bound their
+input slices; wire-decoded views retain the existing message limits and original source references.
+
+Precision/scale queries are opt-in caller policy, separate from schema length/lexical checks.
+Registering an NM datatype does not activate them. The existing package identity/validation
+semantics remain unchanged; hosts using these queries in processing decisions include the policy
+and parameters in their complete processing plan. FHIR emission and exact numeric interoperability
+through FML remain separate work.
 
 ## Composite TS
 
@@ -88,8 +130,12 @@ an owned decoded buffer. The message, source spans, diagnostics and original ser
 change. Parsing is linear for decimals and bounded to 8/24 decoded bytes for DT/DTM; escape decoding
 retains the message's existing limits. These views do not attach diagnostics to an immutable message.
 
-Five focused integration scenarios cover long decimals, grammar rejection, precision/calendar
+Five lexical integration scenarios cover long decimals, grammar rejection, precision/calendar
 boundaries, offsets, presence, source spans and custom delimiters. The wire fuzz target exercises
 standalone arbitrary bytes, typed reads from parsed nodes and TS paths at all supported depths.
-The local benchmark reports lexical
-parse timing separately from message parsing; neither timing includes schema or FHIR validation.
+Three numeric-query scenarios additionally cover ordered equivalence classes, signed zero,
+precision/scale bounds, independent scaled-integer oracles, 100,000-digit inputs and escaped wire
+ownership. Fuzzing checks numeric order/representability against bounded i128 arithmetic and verifies
+invariance under added insignificant zeros. The local benchmark reports lexical parse timing and
+queries on already parsed decimal views separately from message parsing. These measurements exclude
+schema and FHIR validation.

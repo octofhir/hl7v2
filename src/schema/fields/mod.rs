@@ -1,5 +1,9 @@
 #![doc = include_str!("../../../docs/validation.md")]
+mod conditions;
 mod run;
+use conditions::CompiledCondition;
+pub use conditions::{Condition, Predicate, Requirement};
+use std::borrow::Cow;
 
 use super::{Catalog, CompileLimits, Error, ErrorKind, Occurs, identifier};
 use crate::wire::{Message, Presence};
@@ -19,6 +23,8 @@ pub enum DatatypeKind<'a> {
     Primitive(Primitive),
     Composite(&'a [Element<'a>]),
     Timestamp,
+    /// A closed set of exact decoded UTF-8 strings; no trimming or case folding.
+    Codes(&'a [&'a str]),
 }
 pub struct Datatype<'a> {
     pub name: &'a str,
@@ -97,19 +103,37 @@ struct Slot {
     nullable: bool,
     length: Option<Length>,
 }
-enum Kind {
+enum Kind<'a> {
     Primitive(Primitive),
     Composite(Vec<Slot>),
     Timestamp,
+    Codes(Vec<Cow<'a, str>>),
+}
+#[cfg(feature = "schema-package")]
+impl Kind<'_> {
+    fn into_owned(self) -> Kind<'static> {
+        match self {
+            Self::Primitive(p) => Kind::Primitive(p),
+            Self::Composite(slots) => Kind::Composite(slots),
+            Self::Timestamp => Kind::Timestamp,
+            Self::Codes(values) => Kind::Codes(
+                values
+                    .into_iter()
+                    .map(|s| Cow::Owned(s.into_owned()))
+                    .collect(),
+            ),
+        }
+    }
 }
 struct Type<'a> {
-    name: &'a str,
-    kind: Kind,
+    name: Cow<'a, str>,
+    kind: Kind<'a>,
 }
 struct Segment<'a> {
-    name: &'a str,
+    name: Cow<'a, str>,
     id: [u8; 3],
     fields: Vec<Slot>,
+    conditions: Vec<CompiledCondition<'a>>,
 }
 /// Immutable caller-defined datatypes and named segment profiles; no bundled standards data.
 pub struct FieldSchema<'a> {
@@ -120,9 +144,10 @@ pub struct FieldSchema<'a> {
 impl<'a> FieldSchema<'a> {
     #[cfg(feature = "schema-package")]
     pub(super) fn identity(&self, hash: &mut super::package::Identity) {
+        let conditional = self.format_version() >= 3;
         hash.number(self.types.len());
         for datatype in &self.types {
-            hash.text(datatype.name);
+            hash.text(&datatype.name);
             match &datatype.kind {
                 Kind::Primitive(primitive) => {
                     hash.tag(0);
@@ -136,6 +161,13 @@ impl<'a> FieldSchema<'a> {
                     });
                 }
                 Kind::Timestamp => hash.tag(1),
+                Kind::Codes(values) => {
+                    hash.tag(3);
+                    hash.number(values.len());
+                    for value in values {
+                        hash.text(value);
+                    }
+                }
                 Kind::Composite(slots) => {
                     hash.tag(2);
                     identity_slots(slots, hash);
@@ -144,14 +176,154 @@ impl<'a> FieldSchema<'a> {
         }
         hash.number(self.segments.len());
         for segment in &self.segments {
-            hash.text(segment.name);
+            hash.text(&segment.name);
             hash.bytes(&segment.id);
             identity_slots(&segment.fields, hash);
+            if conditional {
+                hash.number(segment.conditions.len());
+                for condition in &segment.conditions {
+                    condition.identity(hash);
+                }
+            }
+        }
+    }
+    #[cfg(feature = "schema-package")]
+    pub(super) fn into_owned(self) -> FieldSchema<'static> {
+        FieldSchema {
+            types: self
+                .types
+                .into_iter()
+                .map(|t| Type {
+                    name: Cow::Owned(t.name.into_owned()),
+                    kind: t.kind.into_owned(),
+                })
+                .collect(),
+            segments: self
+                .segments
+                .into_iter()
+                .map(|s| Segment {
+                    name: Cow::Owned(s.name.into_owned()),
+                    id: s.id,
+                    fields: s.fields,
+                    conditions: s
+                        .conditions
+                        .into_iter()
+                        .map(CompiledCondition::into_owned)
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+    #[cfg(feature = "schema-package")]
+    pub(super) fn write_file(
+        &self,
+        w: &mut super::package::file::Writer,
+    ) -> Result<(), super::package::FileError> {
+        let conditional = self.format_version() >= 3;
+        w.count(self.types.len())?;
+        for t in &self.types {
+            w.text(&t.name)?;
+            match &t.kind {
+                Kind::Primitive(p) => {
+                    w.tag(0)?;
+                    w.tag(match p {
+                        Primitive::Bytes => 0,
+                        Primitive::Ascii => 1,
+                        Primitive::Utf8 => 2,
+                        Primitive::Number => 3,
+                        Primitive::Date => 4,
+                        Primitive::DateTime => 5,
+                    })?;
+                }
+                Kind::Timestamp => w.tag(1)?,
+                Kind::Codes(values) => {
+                    w.tag(3)?;
+                    w.count(values.len())?;
+                    for value in values {
+                        w.text(value)?;
+                    }
+                }
+                Kind::Composite(slots) => {
+                    w.tag(2)?;
+                    self.write_slots(slots, w)?;
+                }
+            }
+        }
+        w.count(self.segments.len())?;
+        for s in &self.segments {
+            w.text(&s.name)?;
+            w.raw(&s.id)?;
+            self.write_slots(&s.fields, w)?;
+            if conditional {
+                w.count(s.conditions.len())?;
+                for condition in &s.conditions {
+                    condition.write_file(w)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    #[cfg(feature = "schema-package")]
+    fn write_slots(
+        &self,
+        slots: &[Slot],
+        w: &mut super::package::file::Writer,
+    ) -> Result<(), super::package::FileError> {
+        w.count(slots.len())?;
+        for s in slots {
+            w.count(s.position)?;
+            w.occurs(s.occurs)?;
+            w.tag(u8::from(s.nullable))?;
+            match s.length {
+                None => w.tag(0)?,
+                Some(length) => {
+                    let (tag, n) = match length {
+                        Length::WireBytes(n) => (1, n),
+                        Length::ScalarBytes(n) => (2, n),
+                        Length::Utf8Characters(n) => (3, n),
+                    };
+                    w.tag(tag)?;
+                    w.count(n)?;
+                }
+            }
+            match &s.datatype {
+                Ref::Fixed(i) => {
+                    w.tag(0)?;
+                    w.text(&self.types[*i].name)?;
+                }
+                Ref::ByField { selector, allowed } => {
+                    w.tag(1)?;
+                    w.count(*selector)?;
+                    w.count(allowed.len())?;
+                    for i in allowed {
+                        w.text(&self.types[*i].name)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    #[cfg(feature = "schema-package")]
+    pub(super) fn format_version(&self) -> u64 {
+        if self.segments.iter().any(|s| !s.conditions.is_empty()) {
+            3
+        } else if self.types.iter().any(|t| matches!(t.kind, Kind::Codes(_))) {
+            2
+        } else {
+            1
         }
     }
     pub fn compile(
         types: &'a [Datatype<'a>],
         segments: &'a [SegmentDefinition<'a>],
+        limits: CompileLimits,
+    ) -> Result<Self, Error> {
+        Self::compile_with_conditions(types, segments, &[], limits)
+    }
+    pub fn compile_with_conditions(
+        types: &'a [Datatype<'a>],
+        segments: &'a [SegmentDefinition<'a>],
+        conditions: &'a [Condition<'a>],
         limits: CompileLimits,
     ) -> Result<Self, Error> {
         if limits.max_depth == 0 || limits.max_depth > 64 || limits.max_work == 0 {
@@ -189,6 +361,28 @@ impl<'a> FieldSchema<'a> {
             let kind = match datatype.kind {
                 DatatypeKind::Primitive(p) => Kind::Primitive(p),
                 DatatypeKind::Timestamp => Kind::Timestamp,
+                DatatypeKind::Codes(values) => {
+                    if values.is_empty() {
+                        return Err(definition());
+                    }
+                    take(&mut budget, values.len())?;
+                    take(&mut work, values.len())?;
+                    for value in values {
+                        if value.len() > 4096 {
+                            return Err(Error::new(ErrorKind::Limit));
+                        }
+                        take(&mut work, value.len())?;
+                        if value.is_empty() || value.chars().any(char::is_control) {
+                            return Err(definition());
+                        }
+                    }
+                    let mut values: Vec<_> = values.iter().map(|&s| Cow::Borrowed(s)).collect();
+                    values.sort_unstable();
+                    if values.windows(2).any(|p| p[0] == p[1]) {
+                        return Err(definition());
+                    }
+                    Kind::Codes(values)
+                }
                 DatatypeKind::Composite(elements) => {
                     if elements.is_empty() {
                         return Err(definition());
@@ -204,7 +398,7 @@ impl<'a> FieldSchema<'a> {
                 }
             };
             compiled.push(Type {
-                name: datatype.name,
+                name: datatype.name.into(),
                 kind,
             });
         }
@@ -232,14 +426,14 @@ impl<'a> FieldSchema<'a> {
                         .map_err(|_| definition())?;
                     let source = &fields[index];
                     if source.occurs.max != Some(1)
-                        || !matches!(source.datatype, Ref::Fixed(i) if matches!(result.types[i].kind, Kind::Primitive(Primitive::Bytes | Primitive::Ascii | Primitive::Utf8)))
+                        || !matches!(source.datatype, Ref::Fixed(i) if matches!(result.types[i].kind, Kind::Primitive(Primitive::Bytes | Primitive::Ascii | Primitive::Utf8) | Kind::Codes(_)))
                     {
                         return Err(definition());
                     }
                 }
                 if segment.id == *b"MSH"
                     && slot.position <= 2
-                    && (!matches!(slot.datatype, Ref::Fixed(i) if matches!(result.types[i].kind, Kind::Primitive(_)))
+                    && (!matches!(slot.datatype, Ref::Fixed(i) if matches!(result.types[i].kind, Kind::Primitive(_) | Kind::Codes(_)))
                         || slot.occurs.max != Some(1))
                 {
                     return Err(definition());
@@ -247,9 +441,10 @@ impl<'a> FieldSchema<'a> {
                 check_length(slot, &result.types)?;
             }
             result.segments.push(Segment {
-                name: segment.name,
+                name: segment.name.into(),
                 id: segment.id,
                 fields,
+                conditions: Vec::new(),
             });
         }
         for datatype in &result.types {
@@ -259,6 +454,7 @@ impl<'a> FieldSchema<'a> {
                 }
             }
         }
+        conditions::compile(&mut result, conditions, &mut budget, &mut work)?;
         Ok(result)
     }
     /// Verify every grammar leaf has an explicit, matching field profile before activation.
@@ -295,11 +491,11 @@ impl<'a> FieldSchema<'a> {
             .binary_search_by_key(&path[1], |s| s.position)
             .map_err(|_| Issue::at(message, path, IssueKind::Unmodeled))?;
         self.resolve(message, path[0], &segment.fields[field])
-            .map(|i| self.types[i].name)
+            .map(|i| self.types[i].name.as_ref())
     }
     fn profile(&self, name: &str) -> Option<&Segment<'a>> {
         self.segments
-            .binary_search_by_key(&name, |s| s.name)
+            .binary_search_by(|s| s.name.as_ref().cmp(name))
             .ok()
             .map(|i| &self.segments[i])
     }
@@ -475,7 +671,7 @@ fn depth(
     }
     states[index] = 1;
     let mut maximum = match types[index].kind {
-        Kind::Primitive(_) => 0,
+        Kind::Primitive(_) | Kind::Codes(_) => 0,
         _ => 1,
     };
     if let Kind::Composite(slots) = &types[index].kind {
@@ -496,7 +692,7 @@ fn check_length(slot: &Slot, types: &[Type<'_>]) -> Result<(), Error> {
         slot.length,
         Some(Length::ScalarBytes(_) | Length::Utf8Characters(_))
     ) {
-        let scalar = |i: usize| matches!(types[i].kind, Kind::Primitive(_));
+        let scalar = |i: usize| matches!(types[i].kind, Kind::Primitive(_) | Kind::Codes(_));
         let valid = match &slot.datatype {
             Ref::Fixed(i) => scalar(*i),
             Ref::ByField { allowed, .. } => allowed.iter().all(|i| scalar(*i)),

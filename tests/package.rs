@@ -154,7 +154,8 @@ fn deterministic_identity_survives_table_order_and_old_packages_remain_usable() 
             0x1e, 0x66, 0x9c, 0xd1
         ]
     );
-    assert_eq!(FORMAT_VERSION, 1);
+    assert_eq!(FORMAT_VERSION, 3);
+    assert_eq!(old.format_version(), 1);
     assert_eq!(old.manifest().release, old.catalog().version());
     let mut types: Vec<_> = TYPES
         .iter()
@@ -230,6 +231,7 @@ fn deterministic_identity_survives_table_order_and_old_packages_remain_usable() 
     )?
     .require_digest(digest)?;
     assert_eq!(reordered.digest(), digest);
+    assert_eq!(reordered.encode(FILE.len())?, FILE);
     let narrower = [
         VALUE[0],
         E {
@@ -612,6 +614,300 @@ fn invalid_evidence_and_incompatible_definitions_fail_before_activation() -> Res
             Package::compile(manifest(), definitions(), limits),
             Err(Error::Schema(_))
         ));
+    }
+    Ok(())
+}
+
+const FILE: &[u8] = include_bytes!("fixtures/native-package-v1.bin");
+const PIN: [u8; 32] = [
+    0x01, 0x61, 0x08, 0x1c, 0x3e, 0xb1, 0x55, 0x36, 0xd2, 0x63, 0xba, 0x1b, 0x1f, 0x35, 0x77, 0x25,
+    0xb0, 0xef, 0xc4, 0x3b, 0x7e, 0x2d, 0x02, 0xa5, 0x8b, 0x54, 0x1d, 0xda, 0x1e, 0x66, 0x9c, 0xd1,
+];
+
+#[test]
+fn frozen_file_restores_historical_pin_and_owns_reusable_plans() -> Result {
+    use octofhir_hl7v2::schema::package::{LoadLimits, OwnedPackage};
+    let native = compile(manifest(), definitions())?;
+    assert_eq!(native.encode(FILE.len())?, FILE);
+    let loaded = {
+        let bytes = FILE.to_vec();
+        OwnedPackage::read_from(std::io::Cursor::new(bytes), PIN, LoadLimits::default())?
+    };
+    assert_eq!(loaded.digest(), PIN);
+    assert_eq!(loaded.manifest().scope, manifest().scope);
+    assert_eq!(loaded.manifest().sources[1].sha256, SOURCES[1].sha256);
+    let mut exported = Vec::new();
+    loaded.write_to(&mut exported, FILE.len())?;
+    assert_eq!(exported, FILE);
+    // A moved owned package remains usable after all loader buffers have been dropped.
+    let loaded = std::thread::spawn(move || loaded)
+        .join()
+        .map_err(|_| "loader thread failed")?;
+    for value in ["0001.2300", "\"\"", "invalid"] {
+        let message = Message::parse(
+            format!("MSH|^~\\&|||||||ZZZ^Z01^SYNTHETIC|||TEST\rZZZ|NM|{value}\rNTE|1||note\r")
+                .as_bytes(),
+        )?;
+        let old = native.catalog().group(&message, MatchLimits::default())?;
+        let restored = loaded.catalog().group(&message, MatchLimits::default())?;
+        assert_eq!(old.occurrence_count(), restored.occurrence_count());
+        let a = native.fields().validate(&old, ValidationLimits::default());
+        let b = loaded
+            .fields()
+            .validate(&restored, ValidationLimits::default());
+        assert_eq!(a.is_valid(), value != "invalid");
+        assert_eq!(a.issues, b.issues);
+        assert_eq!(
+            (a.complete, a.omitted, a.steps, a.bytes),
+            (b.complete, b.omitted, b.steps, b.bytes)
+        );
+        assert_eq!(
+            restored.message().original().as_ptr(),
+            message.original().as_ptr()
+        );
+        assert_eq!(
+            restored.segments().nth(1).and_then(|s| s.profile()),
+            Some("Value")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn files_fail_closed_on_corruption_unknown_constructs_references_and_bounds() -> Result {
+    use octofhir_hl7v2::schema::package::{FileError, LoadLimits, OwnedPackage};
+    let limits = LoadLimits::default();
+    for end in 0..FILE.len() {
+        assert!(
+            OwnedPackage::decode(&FILE[..end], PIN, limits).is_err(),
+            "prefix {end}"
+        );
+    }
+    for offset in 0..FILE.len() {
+        let mut changed = FILE.to_vec();
+        changed[offset] ^= 0x80;
+        assert!(
+            OwnedPackage::decode(&changed, PIN, limits).is_err(),
+            "changed byte {offset}"
+        );
+    }
+    let mut trailing = FILE.to_vec();
+    trailing.push(0);
+    assert!(matches!(
+        OwnedPackage::decode(&trailing, PIN, limits),
+        Err(FileError::Format { .. })
+    ));
+    for offset in [8, 16] {
+        let mut unknown = FILE.to_vec();
+        unknown[offset..offset + 8].copy_from_slice(&2_u64.to_be_bytes());
+        assert!(matches!(
+            OwnedPackage::decode(&unknown, PIN, limits),
+            Err(FileError::UnsupportedVersion)
+        ));
+    }
+    let mut pin = PIN;
+    pin[0] ^= 1;
+    assert!(matches!(
+        OwnedPackage::decode(FILE, pin, limits),
+        Err(FileError::Package(Error::DigestMismatch))
+    ));
+    // An unchanged embedded pin does not authorize changed metadata or schema contents.
+    let mut changed = FILE.to_vec();
+    changed[64] = b'S';
+    assert!(matches!(
+        OwnedPackage::decode(&changed, PIN, limits),
+        Err(FileError::Package(Error::DigestMismatch))
+    ));
+    let replace_last =
+        |from: &[u8], to: &[u8]| -> std::result::Result<Vec<u8>, Box<dyn std::error::Error>> {
+            let mut changed = FILE.to_vec();
+            let at = changed
+                .windows(from.len())
+                .rposition(|w| w == from)
+                .ok_or("missing fixture token")?;
+            changed[at..at + from.len()].copy_from_slice(to);
+            Ok(changed)
+        };
+    for changed in [
+        replace_last(b"NM", b"NO")?, // Unknown datatype in a dynamic allowlist.
+        replace_last(b"SYNTHETIC", b"UNDEFINED")?, // Unknown binding target.
+        // A grammar profile and its definition must still agree.
+        {
+            let mut b = FILE.to_vec();
+            let at = b
+                .windows(5)
+                .position(|s| s == b"Value")
+                .ok_or("profile token")?;
+            b[at..at + 5].copy_from_slice(b"Other");
+            b
+        },
+    ] {
+        assert!(matches!(
+            OwnedPackage::decode(&changed, PIN, limits),
+            Err(FileError::Package(Error::Schema(_)))
+        ));
+    }
+    for bounded in [
+        LoadLimits {
+            max_bytes: FILE.len() - 1,
+            ..limits
+        },
+        LoadLimits {
+            max_items: 1,
+            ..limits
+        },
+        LoadLimits {
+            max_text_bytes: 3,
+            ..limits
+        },
+        LoadLimits {
+            compile: CompileLimits {
+                max_depth: 1,
+                ..Default::default()
+            },
+            ..limits
+        },
+        LoadLimits {
+            compile: CompileLimits {
+                max_work: 1,
+                ..Default::default()
+            },
+            ..limits
+        },
+    ] {
+        assert!(OwnedPackage::decode(FILE, PIN, bounded).is_err());
+    }
+    let package = compile(manifest(), definitions())?;
+    let mut output = Vec::new();
+    assert!(matches!(
+        package.write_to(&mut output, FILE.len() - 1),
+        Err(FileError::Limit)
+    ));
+    assert!(output.is_empty());
+    // The read boundary is enforced even for an endless input stream.
+    struct Endless {
+        read: usize,
+    }
+    impl std::io::Read for Endless {
+        fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+            b.fill(0);
+            self.read += b.len();
+            Ok(b.len())
+        }
+    }
+    let mut endless = Endless { read: 0 };
+    assert!(matches!(
+        OwnedPackage::read_from(&mut endless, PIN, limits),
+        Err(FileError::Limit)
+    ));
+    assert_eq!(endless.read, limits.max_bytes + 1);
+    Ok(())
+}
+
+#[test]
+fn loaded_plans_preserve_scalar_kinds_length_units_and_nested_constraints() -> Result {
+    use octofhir_hl7v2::schema::package::{LoadLimits, OwnedPackage};
+    let types: Vec<_> = TYPES
+        .iter()
+        .map(|t| Datatype {
+            name: t.name,
+            kind: t.kind,
+        })
+        .chain([
+            Datatype {
+                name: "DT",
+                kind: K::Primitive(P::Date),
+            },
+            Datatype {
+                name: "DTM",
+                kind: K::Primitive(P::DateTime),
+            },
+        ])
+        .collect();
+    let fields = [
+        VALUE[0],
+        E {
+            nullable: true,
+            length: VALUE[1].length,
+            ..E::by_field(
+                2,
+                1,
+                &["B", "ID", "ST", "NM", "DT", "DTM", "TS", "MSG"],
+                Occurs::ONCE,
+            )
+        },
+    ];
+    for length in [Length::ScalarBytes(2), Length::Utf8Characters(2)] {
+        let note = [
+            E::optional(1, "ID"),
+            E {
+                length: Some(length),
+                ..E::optional(3, "ST")
+            },
+        ];
+        let segments = [
+            S {
+                fields: &fields,
+                ..PROFILES[2]
+            },
+            S {
+                name: "Header",
+                id: *b"MSH",
+                fields: PROFILES[0].fields,
+            },
+            S {
+                name: "Note",
+                id: *b"NTE",
+                fields: &note,
+            },
+        ];
+        let native = compile(
+            manifest(),
+            Definitions {
+                datatypes: &types,
+                segments: &segments,
+                ..definitions()
+            },
+        )?;
+        let loaded = OwnedPackage::decode(
+            &native.encode(16_384)?,
+            native.digest(),
+            LoadLimits::default(),
+        )?;
+        for (datatype, value, valid) in [
+            ("B", "raw", true),
+            ("ID", "ascii", true),
+            ("ST", "é", true),
+            ("NM", "0001.2300", true),
+            ("DT", "202402", true),
+            ("DT", "20230229", false),
+            ("DTM", "20240229235959.0100-0000", true),
+            ("DTM", "2024023012", false),
+            ("TS", "202402291234^L", true),
+            ("TS", "2024^S", false),
+            ("MSG", "ZZZ^Z01^SYNTHETIC", true),
+            ("MSG", "ZZZ", false),
+        ] {
+            let message = Message::parse(
+                format!(
+                    "MSH|^~\\&|||||||ZZZ^Z01^SYNTHETIC|||TEST\rZZZ|{datatype}|{value}\rNTE|1||éé\r"
+                )
+                .as_bytes(),
+            )?;
+            let a = native.fields().validate(
+                &native.catalog().group(&message, MatchLimits::default())?,
+                ValidationLimits::default(),
+            );
+            let b = loaded.fields().validate(
+                &loaded.catalog().group(&message, MatchLimits::default())?,
+                ValidationLimits::default(),
+            );
+            assert_eq!(a.issues, b.issues);
+            assert_eq!(
+                b.is_valid(),
+                valid && matches!(length, Length::Utf8Characters(_))
+            );
+        }
     }
     Ok(())
 }

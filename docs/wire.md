@@ -33,9 +33,13 @@ policies are not implemented. Nonterminal marker characters remain ordinary data
 
 ## Editing and bounds
 
+`Message::create(delimiters, options)` starts a fresh message with only separator declarations in
+a CR-terminated MSH. Populate remaining header fields and segments explicitly before schema checks.
+
 `message.edit().set(&[segment, field, ...], Edit::Value(bytes))` replaces an existing position with unescaped scalar bytes. Changed delimiters and control bytes are escaped once. `Empty` and `Null` are explicit operations. Literal `""` supplied as a value is hex-escaped to distinguish it from null. Untouched source ranges are copied verbatim.
 
-`set_or_create` extends missing positions within existing segments, filling intervening siblings with explicit empty values. Several sparse creations are combined in path order. `Unset` removes one originally final sibling per parent per revision, including its preceding separator; it cannot be combined with creating later siblings. Interior deletion and removal of the only child of a present field/component are refused. Unsetting an absent position cancels its exact pending creation or is a no-op. Parent/descendant edits conflict. MSH-1/2 and delimiter changes are refused. See the [editing contract](editing.md) for null handling, limits and a compiled example. Creating segments remains deferred.
+`set_or_create` extends missing positions within existing segments, filling intervening siblings with explicit empty values. Several sparse creations are combined in path order. `Unset` removes one originally final sibling per parent per revision, including its preceding separator; it cannot be combined with creating later siblings. Interior deletion and removal of the only child of a present field/component are refused. Unsetting an absent position cancels its exact pending creation or is a no-op. Parent/descendant edits conflict. MSH-1/2 and delimiter changes are refused. See the [editing contract](editing.md) for null handling, limits and a compiled example. Non-MSH segment builders, insertion at original boundaries and whole-segment removal are available
+in the same sparse editor; see the [segment editing contract](editing.md#segment-construction-and-splicing).
 
 The editor rejects messages with unterminated escapes, including when diagnostics have been omitted by the display budget. Otherwise an inserted escape could pair with an old unmatched marker across field boundaries. These messages remain available for raw inspection and original-byte emission.
 

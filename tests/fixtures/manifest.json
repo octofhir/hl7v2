@@ -36,6 +36,64 @@
       "sha256": "01c94ecb51ac137cf860b246f981b85edd109b03823d4d46264172e8c180ed4c",
       "expected_original_round_trip": true,
       "schema_validated": false
+    },
+    {
+      "file": "native-package-v1.bin",
+      "origin": "Original synthetic OctoFHIR package, independently encoded with Python struct from the documented V1 format and the historical tests/package.rs definitions",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 1413,
+      "sha256": "7b40023ce56645157bd69f4bf7c47c4ec95b3e81c893dcace454b03e19ce0036",
+      "schema_package_digest": "0161081c3eb15536d263ba1b1f357725b0efc43b7e2d02a58b541dda1e669cd1",
+      "standards_conformance": false
+    },
+    {
+      "file": "native-package.er7",
+      "origin": "Original synthetic OctoFHIR message for the native V1 package; no real patient data",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 79,
+      "sha256": "bfacaa3b21c33f73bb0546a20837c209f6f041d3dadc32d621e5241de8b31456",
+      "expected_original_round_trip": true,
+      "schema_package_digest": "0161081c3eb15536d263ba1b1f357725b0efc43b7e2d02a58b541dda1e669cd1",
+      "expected_schema_valid": true,
+      "standards_conformance": false
+    },
+    {
+      "file": "native-package-v2.bin",
+      "origin": "Original synthetic OctoFHIR code-set package; independently encoded V2 identity and file with Python struct/hashlib",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 1002,
+      "sha256": "03c142fb6f16c2ca6db4feef5af90065f247d2ddc0fe37d6a685aa7fe2fa3b56",
+      "schema_package_digest": "959942d40306161cf328d5077b242b94662445b057b1f6fb253b91b56eb682ef",
+      "standards_conformance": false
+    },
+    {
+      "file": "native-codes.er7",
+      "origin": "Original synthetic OctoFHIR closed-code message; no real patient data",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 42,
+      "sha256": "2adfcd3007a72153691a215a41528df5523dbc3994d3e2cd8028b5689b0e5ccc",
+      "schema_package_digest": "959942d40306161cf328d5077b242b94662445b057b1f6fb253b91b56eb682ef",
+      "expected_schema_valid": true,
+      "standards_conformance": false
+    },
+    {
+      "file": "native-package-v3.bin",
+      "origin": "Original synthetic OctoFHIR conditional-presence package; identity and file independently encoded with Python struct/hashlib",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 1116,
+      "sha256": "98c6d0adcec21273b8cb32bcaafe7bb89902d4ccfd4efdb77e06290c2af12ef4",
+      "schema_package_digest": "47cca623560e9e6c4cf47e3e0b56fd6053bca1f9a5871010a5244d466a047469",
+      "standards_conformance": false
+    },
+    {
+      "file": "native-conditions.er7",
+      "origin": "Original synthetic OctoFHIR conditional-presence message; no real patient data",
+      "license": "MIT OR Apache-2.0",
+      "bytes": 55,
+      "sha256": "fe36eae104abc9fa82d144a750e1503faa0f2cca7139a04a0cdcfcf383b8d881",
+      "schema_package_digest": "47cca623560e9e6c4cf47e3e0b56fd6053bca1f9a5871010a5244d466a047469",
+      "expected_schema_valid": true,
+      "standards_conformance": false
     }
   ]
 }

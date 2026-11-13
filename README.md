@@ -1,6 +1,6 @@
 <p align="center"><img src=".github/banner.png" alt="octo/hl7v2 — HL7 v2 messages, from wire to FHIR" width="100%"></p>
 
-<p align="center"><b>HL7 v2 tooling in Rust: MLLP transport, message schemas and FHIR Mapping Language maps.</b></p>
+<p align="center"><b>HL7 v2 tooling in Rust: independent ER7 parsing, message schemas, MLLP and ACKs.</b></p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/status-early%20development-f5b335" alt="Status: early development">
@@ -16,9 +16,14 @@ has no third-party dependencies. It retains exact source bytes, byte spans, fiel
 and distinguishes missing, empty, explicit null and populated positions. Scalar escape decoding is
 explicit; unsupported escapes remain inspectable. [Numeric/date views](docs/scalars.md) validate explicit
 decimal, DT, DTM and TS reads while preserving signs, zeros, partial precision and offset presence.
+Decimal views also provide exact numeric comparison, zero checks and precision/scale queries
+without changing their lexical bytes.
 Parser and editor limits bound input, index and output growth.
 Sparse [editing](docs/editing.md) can explicitly create missing positions within existing segments,
-preserving coordinates by filling intervening siblings with empty values.
+preserving coordinates by filling intervening siblings with empty values. Segment builders use the
+same escaping and sparse positions; an editor can insert new non-MSH segments and remove original
+segments in the same revision while retaining untouched bytes. `Message::create` starts a fresh
+message from explicit delimiters without a template or invented header values.
 
 The initial supported subset uses distinct ASCII punctuation delimiters, four or five MSH-2 encoding
 characters and CR segment terminators; CRLF/LF require an explicit compatibility option. Parsing
@@ -30,13 +35,22 @@ resolves exact release and event/structure bindings, and exposes nested/repeated
 original segment occurrences. Ambiguous grammars and unsupported envelope/profile variants fail
 explicitly. Separate [field profiles](docs/validation.md) check presence, cardinality, explicit length
 units and datatype lexemes, including OBX-5 types selected by the same OBX's OBX-2. Checks retain
-source coordinates and have work/byte/report budgets. Approved versioned catalogs, import/overlays,
-conditional rules and terminology validation remain planned.
+source coordinates and have work/byte/report budgets. Closed caller-defined UTF-8 code sets support
+exact membership checks in fields/components and dynamic selectors. Same-segment presence/equality
+predicates can require or forbid optional fields. Approved versioned catalogs,
+standards import/overlays, broader conditional rules and external terminology validation remain planned.
 
 The optional `schema-package` feature wraps native definitions in an immutable
 [schema package](docs/schema-packages.md) with required source/scope/limitations metadata and a
-deterministic SHA-256. Activation can require an exact historical digest. The host retains the
-definitions and includes their digest in its processing plan; file import and asset storage remain planned.
+deterministic SHA-256. Bounded native binary export/loading restores an owned compiled package
+against an exact expected digest. Legacy definitions retain V1 digest/export bytes; code sets use V2
+and conditional presence uses V3.
+The host retains historical files and includes the schema digest
+in its processing plan. Official standards-artifact import and asset storage remain planned.
+
+The optional [`hl7v2-validate` command](docs/offline-validation.md) loads a package against an
+expected schema digest and checks local ER7 files with bounded structure/field reports and source
+coordinates. It reuses one activated package and prints no field values.
 
 The [MLLP codec](docs/mllp.md) handles fragmented/coalesced frames, an explicit payload limit,
 incomplete EOF and framing errors. It returns one borrowed payload at a time and retains no output

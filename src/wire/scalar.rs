@@ -1,8 +1,8 @@
 //! Explicit lexical views. No arithmetic, timezone inference or schema length validation.
 use super::{Error, ErrorKind, Message, Presence, Span, Value, valid_path};
-use std::borrow::Cow;
+use std::{borrow::Cow, cmp::Ordering};
 
-/// Exact decimal spelling; equality and arithmetic are deliberately not supplied.
+/// Exact decimal spelling with explicit numeric queries; no arithmetic or implicit normalization.
 #[derive(Clone)]
 pub struct Decimal<'a> {
     bytes: Cow<'a, [u8]>,
@@ -49,6 +49,65 @@ impl<'a> Decimal<'a> {
     }
     pub fn scale(&self) -> usize {
         self.fraction_digits().map_or(0, <[u8]>::len)
+    }
+    /// Numeric zero, including signed zero and any number of zero digits.
+    pub fn is_zero(&self) -> bool {
+        self.integer_digits()
+            .iter()
+            .chain(self.fraction_digits().unwrap_or(&[]))
+            .all(|&b| b == b'0')
+    }
+    /// Compare mathematical values without allocating, padding or modifying their lexical bytes.
+    /// Leading integer zeros, trailing fractional zeros and the sign of zero do not affect order.
+    pub fn numeric_cmp(&self, other: &Decimal<'_>) -> Ordering {
+        let negative = self.sign() == Some(b'-');
+        let other_negative = other.sign() == Some(b'-');
+        if negative != other_negative {
+            return if self.is_zero() && other.is_zero() {
+                Ordering::Equal
+            } else if negative {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
+        }
+        let left = self.significant_integer_digits();
+        let right = other.significant_integer_digits();
+        let mut order = left.len().cmp(&right.len()).then_with(|| left.cmp(right));
+        if order == Ordering::Equal {
+            let left = self.fraction_digits().unwrap_or(&[]);
+            let right = other.fraction_digits().unwrap_or(&[]);
+            let shared = left.len().min(right.len());
+            order = left[..shared].cmp(&right[..shared]).then_with(|| {
+                // At least one tail is empty; the other is compared against virtual zero padding.
+                left[shared..]
+                    .iter()
+                    .any(|&b| b != b'0')
+                    .cmp(&right[shared..].iter().any(|&b| b != b'0'))
+            });
+        }
+        if negative { order.reverse() } else { order }
+    }
+    /// Exact representability with `precision` total digits and `scale` fractional places.
+    /// Requires 1 <= precision and scale <= precision. No rounding or rescaling is performed.
+    /// Leading integer zeros are ignored; fractional digits beyond scale must all be zero.
+    pub fn fits_precision_scale(&self, precision: usize, scale: usize) -> bool {
+        precision > 0
+            && scale <= precision
+            && self.significant_integer_digits().len() <= precision - scale
+            && self
+                .fraction_digits()
+                .unwrap_or(&[])
+                .get(scale..)
+                .is_none_or(|tail| tail.iter().all(|&b| b == b'0'))
+    }
+    fn significant_integer_digits(&self) -> &[u8] {
+        let digits = self.integer_digits();
+        let start = digits
+            .iter()
+            .position(|&b| b != b'0')
+            .unwrap_or(digits.len());
+        &digits[start..]
     }
 }
 

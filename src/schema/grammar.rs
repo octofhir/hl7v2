@@ -1,12 +1,12 @@
 use super::{Content, Error, ErrorKind, MatchLimits, Occurs, Rule, Structure, identifier};
 use crate::wire::{Message, Segment};
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 
 struct CompiledRule<'a> {
-    name: &'a str,
+    name: Cow<'a, str>,
     occurs: Occurs,
     segment: Option<[u8; 3]>,
-    profile: Option<&'a str>,
+    profile: Option<Cow<'a, str>>,
     children: Range<usize>,
     first: Vec<[u8; 3]>,
 }
@@ -19,13 +19,13 @@ impl StructureSchema<'_> {
     pub(super) fn identity(&self, hash: &mut super::package::Identity) {
         hash.number(self.rules.len());
         for rule in &self.rules {
-            hash.text(rule.name);
+            hash.text(&rule.name);
             hash.occurs(rule.occurs);
             match rule.segment {
                 Some(id) => {
                     hash.tag(1);
                     hash.bytes(&id);
-                    match rule.profile {
+                    match &rule.profile {
                         Some(profile) => {
                             hash.tag(1);
                             hash.text(profile);
@@ -41,13 +41,67 @@ impl StructureSchema<'_> {
             }
         }
     }
+    #[cfg(feature = "schema-package")]
+    pub(super) fn into_owned(self) -> StructureSchema<'static> {
+        StructureSchema {
+            rules: self
+                .rules
+                .into_iter()
+                .map(|r| CompiledRule {
+                    name: Cow::Owned(r.name.into_owned()),
+                    profile: r.profile.map(|p| Cow::Owned(p.into_owned())),
+                    occurs: r.occurs,
+                    segment: r.segment,
+                    children: r.children,
+                    first: r.first,
+                })
+                .collect(),
+        }
+    }
+    #[cfg(feature = "schema-package")]
+    pub(super) fn write_file(
+        &self,
+        w: &mut super::package::file::Writer,
+    ) -> Result<(), super::package::FileError> {
+        w.text(self.name())?;
+        self.write_children(0, w)
+    }
+    #[cfg(feature = "schema-package")]
+    fn write_children(
+        &self,
+        parent: usize,
+        w: &mut super::package::file::Writer,
+    ) -> Result<(), super::package::FileError> {
+        w.count(self.rules[parent].children.len())?;
+        for i in self.rules[parent].children.clone() {
+            let r = &self.rules[i];
+            w.text(&r.name)?;
+            w.occurs(r.occurs)?;
+            match r.segment {
+                Some(id) => {
+                    w.tag(0)?;
+                    w.raw(&id)?;
+                    w.text(
+                        r.profile
+                            .as_deref()
+                            .ok_or(super::package::FileError::Format { offset: 0 })?,
+                    )?;
+                }
+                None => {
+                    w.tag(1)?;
+                    self.write_children(i, w)?;
+                }
+            }
+        }
+        Ok(())
+    }
     pub(super) fn profiles(&self) -> impl Iterator<Item = ([u8; 3], Option<&str>)> {
         self.rules
             .iter()
-            .filter_map(|r| r.segment.map(|id| (id, r.profile)))
+            .filter_map(|r| r.segment.map(|id| (id, r.profile.as_deref())))
     }
     pub fn name(&self) -> &str {
-        self.rules[0].name
+        self.rules[0].name.as_ref()
     }
     /// Match segment shape only. Use `Catalog::group` to also resolve the envelope.
     pub fn group<'s, 'm>(
@@ -88,7 +142,7 @@ pub(super) fn compile<'a>(
     }
     take(rules, 1)?;
     let mut nodes = vec![CompiledRule {
-        name: definition.name,
+        name: definition.name.into(),
         occurs: Occurs::ONCE,
         segment: None,
         profile: None,
@@ -171,10 +225,10 @@ fn fill<'a>(
             _ => None,
         };
         nodes.push(CompiledRule {
-            name: rule.name,
+            name: rule.name.into(),
             occurs: rule.occurs,
             segment,
-            profile,
+            profile: profile.map(Cow::Borrowed),
             children: 0..0,
             first: segment.into_iter().collect(),
         });
@@ -334,10 +388,14 @@ pub struct Occurrence<'v, 's, 'm> {
 }
 impl<'v, 's, 'm> Occurrence<'v, 's, 'm> {
     pub fn profile(self) -> Option<&'s str> {
-        self.view.schema.rules[self.view.nodes[self.index].rule].profile
+        self.view.schema.rules[self.view.nodes[self.index].rule]
+            .profile
+            .as_deref()
     }
     pub fn name(self) -> &'s str {
-        self.view.schema.rules[self.view.nodes[self.index].rule].name
+        self.view.schema.rules[self.view.nodes[self.index].rule]
+            .name
+            .as_ref()
     }
     /// Global, one-based, half-open source segment range.
     pub fn segment_range(self) -> Range<usize> {

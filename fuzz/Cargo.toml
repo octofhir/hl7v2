@@ -44,3 +44,10 @@ bench = false
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[[bin]]
+name = "package"
+path = "fuzz_targets/package.rs"
+test = false
+doc = false
+bench = false

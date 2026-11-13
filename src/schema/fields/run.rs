@@ -1,4 +1,7 @@
-use super::{FieldSchema, Kind, Length, Primitive, Ref, Slot};
+use super::{
+    FieldSchema, Kind, Length, Primitive, Ref, Requirement, Slot,
+    conditions::{CompiledCondition, Test, presence_tag},
+};
 use crate::{
     schema::View,
     wire::{self, Message, Presence, Span},
@@ -11,10 +14,22 @@ pub enum IssueKind {
     Cardinality,
     Length,
     Encoding,
+    Code,
+    Conditional {
+        selector: usize,
+        requirement: Requirement,
+    },
+    ConditionSelector {
+        target: usize,
+    },
     Unmodeled,
     Profile,
-    Selector { target: usize },
-    UnknownDatatype { target: usize },
+    Selector {
+        target: usize,
+    },
+    UnknownDatatype {
+        target: usize,
+    },
     Wire(wire::ErrorKind),
     Lexical(wire::ErrorKind),
     Limit,
@@ -259,6 +274,85 @@ impl<'s, 'm> Runner<'s, 'm> {
                 self.value(path, slot, datatype)?;
             }
         }
+        for condition in &definition.conditions {
+            self.conditional(number, condition)?;
+        }
+        Ok(())
+    }
+    fn conditional(&mut self, number: usize, rule: &CompiledCondition<'_>) -> RunResult {
+        let source_path = [number, rule.selector];
+        self.enter(&source_path, 0)?;
+        let source = self.message.value(&source_path);
+        let active = match &rule.test {
+            Test::Is(state) => presence_tag(source.presence()) == *state,
+            Test::Equals(expected) => {
+                if source.presence() != Presence::Value {
+                    return Ok(());
+                }
+                let raw = source.raw().map_or(0, <[u8]>::len);
+                self.enter(&source_path, raw)?;
+                if raw > 5 * 4096 {
+                    self.emit(
+                        &source_path,
+                        IssueKind::ConditionSelector {
+                            target: rule.target,
+                        },
+                    );
+                    return Ok(());
+                }
+                let decoded = match source.decode() {
+                    Ok(bytes) => bytes,
+                    Err(error) => {
+                        if error.kind == wire::ErrorKind::Composite {
+                            self.emit(
+                                &source_path,
+                                IssueKind::ConditionSelector {
+                                    target: rule.target,
+                                },
+                            );
+                        } else {
+                            self.push(Issue::wire(self.message, &source_path, error, false));
+                        }
+                        return Ok(());
+                    }
+                };
+                self.enter(&source_path, 2 * decoded.len().min(expected.len()))?;
+                decoded.as_ref() == expected.as_bytes()
+            }
+        };
+        if !active {
+            return Ok(());
+        }
+        let path = [number, rule.target];
+        self.enter(&path, 0)?;
+        let target = self.message.value(&path);
+        let issue = IssueKind::Conditional {
+            selector: rule.selector,
+            requirement: rule.requirement,
+        };
+        match rule.requirement {
+            Requirement::Forbidden => {
+                if populated(target.presence()) {
+                    self.emit(&path, issue);
+                }
+            }
+            Requirement::Required => {
+                if matches!(target.presence(), Presence::Missing | Presence::Empty) {
+                    self.emit(&path, issue);
+                } else if target.presence() == Presence::Value {
+                    for repetition in 1..=target.child_count() {
+                        let path = [number, rule.target, repetition];
+                        self.enter(&path, 0)?;
+                        if matches!(
+                            self.message.value(&path).presence(),
+                            Presence::Missing | Presence::Empty
+                        ) {
+                            self.emit(&path, issue);
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
     fn value(&mut self, path: &[usize], slot: &Slot, datatype: Option<usize>) -> RunResult {
@@ -293,8 +387,13 @@ impl<'s, 'm> Runner<'s, 'm> {
         let Some(datatype) = datatype else {
             return Ok(());
         };
-        match &self.schema.types[datatype].kind {
-            Kind::Primitive(primitive) => {
+        let kind = &self.schema.types[datatype].kind;
+        match kind {
+            Kind::Primitive(_) | Kind::Codes(_) => {
+                let primitive = match kind {
+                    Kind::Primitive(p) => *p,
+                    _ => Primitive::Utf8,
+                };
                 let bytes = match value.decode() {
                     Ok(bytes) => bytes,
                     Err(e) => {
@@ -326,6 +425,9 @@ impl<'s, 'm> Runner<'s, 'm> {
                     }
                     Primitive::Utf8 if std::str::from_utf8(&bytes).is_err() => {
                         self.emit(path, IssueKind::Encoding);
+                        if matches!(kind, Kind::Codes(_)) {
+                            return Ok(());
+                        }
                         None
                     }
                     Primitive::Ascii | Primitive::Utf8 => None,
@@ -335,6 +437,22 @@ impl<'s, 'm> Runner<'s, 'm> {
                 };
                 if let Some(error) = error {
                     self.push(Issue::wire(self.message, path, error, true));
+                }
+                if let Kind::Codes(values) = kind {
+                    let mut start = 0;
+                    let mut end = values.len();
+                    while start < end {
+                        let middle = start + (end - start) / 2;
+                        let candidate = values[middle].as_bytes();
+                        // Charge both compared prefixes before touching their bytes.
+                        self.enter(path, 2 * bytes.len().min(candidate.len()))?;
+                        match bytes.as_ref().cmp(candidate) {
+                            std::cmp::Ordering::Equal => return Ok(()),
+                            std::cmp::Ordering::Less => end = middle,
+                            std::cmp::Ordering::Greater => start = middle + 1,
+                        }
+                    }
+                    self.emit(path, IssueKind::Code);
                 }
             }
             Kind::Timestamp => {
